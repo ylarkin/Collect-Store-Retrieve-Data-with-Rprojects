@@ -1,0 +1,205 @@
+<catalog store="Boston">
+  <books>
+    <book id="bk406">
+      <author>Gambardella, Matthew</author>
+      <title>Semantic Web Definition with XML</title>
+      <genre>Programming</genre>
+      <price>39.95</price>
+      <edition>3</edition>
+      <publish_date>2023-11-01</publish_date>
+      <description>
+      Explains the use of XML to build semantic knowledge graphs.
+      </description>
+    </book>
+      <book id="bk932">
+      <author>Gambardella, Matthew</author>
+      <title>XML Developer's Guide</title>
+      <genre>Computer</genre>
+      <price>49.95</price>
+      <edition>2</edition>
+      <publish_date>2010-3-01</publish_date>
+      <description>
+      An in-depth look at creating applications with XML.
+      </description>
+    </book>
+    <book id="bk102">
+      <author>Ralls, Kim</author>
+      <title>Midnight Rain</title>
+      <genre>Fantasy</genre>
+      <price>8.95</price>
+      <publish_date>2020-12-16</publish_date>
+      <description>
+      A former architect battles corporate zombies, an evil sorceress, and her own childhood to become queen of the world.
+      </description>
+    </book>
+    <book id="bk103">
+      <author>Corben, Ellen</author>
+      <title>Maeve Ascendant</title>
+      <genre>Fantasy</genre>
+      <price>9.95</price>
+      <publish_date>2010-11-01</publish_date>
+      <description>
+      After the collapse of a nanotechnology society in England, the young survivors lay the foundation for a new society.
+      </description>
+    </book>
+    <book id="bk104">
+      <author>Corben, Ellen</author>
+      <title>Oberon's Legacy</title>
+      <genre>Fantasy</genre>
+      <genre>Science Fiction</genre>
+      <price>14.95</price>
+      <publish_date>2001-03-10</publish_date>
+      <description>
+      In post-apocalypse England, the mysterious agent known only as Oberon helps to create a new life for the inhabitants of London. Sequel to Maeve Ascendant.
+      </description>
+    </book>
+    <book id="bk105">
+    <author>Corben, Ellen</author>
+      <title>The Sundered Grail</title>
+      <genre>Fantasy</genre>
+      <price>6.95</price>
+      <publish_date>2003-09-10</publish_date>
+      <description>
+      The two daughters of Maeve, half-sisters, battle one another for control of England. Sequel to Oberon's Legacy.
+      </description>
+    </book>
+    <book id="bk106">
+      <author>Randall, Cynthia</author>
+      <title>Lover Birds</title>
+      <genre>Romance</genre>
+      <price>4.95</price>
+      <publish_date>2000-09-02</publish_date>
+      <description>
+      When Carla meets Paul at an ornithology conference, tempers fly as feathers get ruffled.
+      </description>
+    </book>
+    <book id="bk107">
+      <author>Thurman, Paula</author>
+      <title>Splish Splash</title>
+      <genre>Romance</genre>
+      <price>6.95</price>
+      <publish_date>2008-11-02</publish_date>
+      <description>
+      A deep sea diver finds true love twenty thousand leagues beneath the sea.
+      </description>
+    </book>
+    <book id="bk108">
+      <author>Knorr, Stefan</author>
+      <title>Creepy Crawlies</title>
+      <genre>Horror</genre>
+      <price>6.95</price>
+      <publish_date>2003-12-06</publish_date>
+      <description>
+      An anthology of horror stories about roaches, centipedes, scorpions and other insects.
+      </description>
+    </book>
+    <book id="bk109">
+      <author>Kress, Peter</author>
+      <title>Paradox Lost and Found</title>
+      <genre>Science Fiction</genre>
+      <genre>Romance</genre>
+      <price>16.95</price>
+      <publish_date>2022-11-02</publish_date>
+      <description>
+      After an inadvertant trip through a Heisenberg Uncertainty Device, James Salway discovers the problems of being quantum.
+      </description>
+    </book>
+    <book id="bk110">
+      <author>O'Brien, Tim</author>
+      <title>The R Programming Bible</title>
+      <edition>2</edition>
+      <genre>Programming</genre>
+      <price>36.95</price>
+      <publish_date>2018-12-09</publish_date>
+    </book>
+    <book id="bk111">
+      <author>O'Brien, Tim</author>
+      <title>MSXML3: A Comprehensive Guide</title>
+      <genre>Programming</genre>
+      <price>36.95</price>
+      <edition>3</edition>
+      <publish_date>2000-12-01</publish_date>
+      <description>
+      The Microsoft MSXML3 parser is covered in detail, with attention to XML DOM interfaces, XSLT processing, SAX and more.
+      </description>
+    </book>
+    <book id="bk112">
+      <author>Galos, Mike</author>
+      <title>Visual Studio 8: A Comprehensive Guide</title>
+      <genre>Programming</genre>
+      <edition>1</edition>
+      <price>49.95</price>
+      <publish_date>2009-03-01</publish_date>
+      <description>
+      Microsoft Visual Studio 8 is explored in depth, looking at how Visual C++, C#, and ASP+ are integrated into a comprehensive development environment.
+      </description>
+    </book>
+    <book id="bk114">
+      <author>Galos, Mike</author>
+      <title>Visual Studio 7: A Comprehensive Guide</title>
+      <edition>2</edition>
+      <genre>Computer</genre>
+      <price>49.95</price>
+      <publish_date>2006-11-30</publish_date>
+      <description>
+      Updated Microsoft Visual Studio 7 is explored in depth, looking at how Visual Basic, Visual C++, C#, and ASP+ are integrated into a comprehensive development environment.
+      </description>
+    </book>
+    <book id="bk799">
+      <author>Feinstein, Birgit</author>
+      <title>Zen through Gardening</title>
+      <edition>1</edition>
+      <genre>Gardening</genre>
+      <price>24.95</price>
+      <publish_date>2021-04-01</publish_date>
+      <description>
+      Gardening can be a wonderful distraction and will center your soul.
+      </description>
+    </book>
+    <book id="bk799">
+      <author>Galos, Mike</author>
+      <title>Visual Studio 11: A Comprehensive Guide</title>
+      <edition>1</edition>
+      <genre>Computer</genre>
+      <price>89.00</price>
+      <publish_date>2022-2-15</publish_date>
+      <description>
+      Updated Microsoft Visual Studio 11 is explored in depth, looking at how C#, Java, and ASP+ are integrated into a comprehensive development environment.
+      </description>
+    </book>
+  </books>
+  <magazines>
+    <magazine id="m4452">
+      <publisher>Harpers</publisher>
+      <title>Garden and Landscapes</title>
+      <price>9.95</price>
+      <issue>1</issue>
+      <year>2023</year>
+      <genre>Gardening</genre>
+    </magazine>
+    <magazine id="m4350">
+      <publisher>IIBA</publisher>
+      <title>Journal of Business Analysis</title>
+      <price>19.95</price>
+      <issue>3</issue>
+      <year>2022</year>
+      <genre>Business Analysis</genre>
+    </magazine>
+    <magazine id="m4152">
+      <publisher>Elsevier</publisher>
+      <title>Home and Garden</title>
+      <price>7.95</price>
+      <issue>2</issue>
+      <year>2023</year>
+      <genre>Gardening</genre>
+    </magazine>
+    <magazine id="m1152">
+      <publisher>Robins</publisher>
+      <title>Luxury Lifestyles</title>
+      <price>11.95</price>
+      <issue>2</issue>
+      <year>2023</year>
+      <genre>Lifestyle</genre>
+    </magazine>
+  </magazines>
+</catalog>

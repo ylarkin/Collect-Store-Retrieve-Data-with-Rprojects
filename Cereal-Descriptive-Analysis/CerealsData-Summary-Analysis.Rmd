@@ -1,0 +1,34 @@
+---
+title: "DA5020 Collect/Store/Retrieve Data"
+subtitle: "Assignment 01.2 : Analyze Cereal Data"
+author: "Larkin, Yvonne"
+date: "Spring 2025 : January 14, 2025"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r Q2_LoadCSV, echo=FALSE, message=FALSE, warning=FALSE}
+# load data from URL without displaying code
+# local csv file copy provided
+df.cereals <- read.csv("http://artificium.us/datasets/CerealData.csv", 
+                       stringsAsFactors = FALSE) #header=TRUE default
+```
+
+### Cereal Data Summary
+
+The file [CerealData.csv](http://artificium.us/datasets/CerealData.csv) 
+contains `r nrow(df.cereals)` rows. The average amount of calories in the cereal 
+is `r round(mean(df.cereals$Calories), 0)` kcal. There are 
+`r length(which(df.cereals$Calories > 120))` cereals with more than 120 calories.
+
+### Cereals with more than 120 Calories:
+
+```{r Q4_FindCereal.Name>120kcal, echo=FALSE, message=FALSE, warning=FALSE}
+rowNum <- which(df.cereals$Calories > 120)
+CerealNames120 <- df.cereals[rowNum, "Cereal.Name"]
+# print each cereal name on new line
+cat(CerealNames120, sep = '\n')
+```
+
+

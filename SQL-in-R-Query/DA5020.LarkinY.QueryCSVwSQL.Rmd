@@ -1,0 +1,113 @@
+---
+title: "Analyze Data in CSV Using SQL"
+subtitle: "Assignment 08.2"
+author: "Larkin, Yvonne"
+date: "Sp 2025, March 11"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+```{r setup, warning=FALSE, message=FALSE}
+library(sqldf)
+dbConcrete <- read.csv("http://s3.us-east-2.amazonaws.com/artificium.us/datasets/ConcreteStrengthData.csv")
+```
+
+### Q1 What is the average concrete strength?
+```{r Q1}
+sqlStmt <- paste0(
+  "SELECT round(avg(strength), 2) AS 'Mean Strength Value for Concrete' ",
+  "FROM dbConcrete ")
+avg.str <- sqldf::sqldf(sqlStmt)
+avg.str
+```
+
+### Q2 How many concrete samples were cured for more than 30 days?
+```{r Q2}
+sqlStmt <- paste0(
+  "SELECT COUNT(age) AS 'Number of Samples Aged more than 30 days' ",
+  "FROM dbConcrete ",
+  "WHERE age > 30 ")
+samples <- sqldf::sqldf(sqlStmt)
+samples
+```
+
+### Q3 What was the average amount of aggregate (coarse and fine) used for concrete with a strength above 50?
+```{r Q3}
+sqlStmt <- paste0(
+  "SELECT round(avg(coarse_agg), 2) AS 'Average Coarse Aggregate', round(avg(fine_agg), 2) AS 'Average Fine Aggregate' ",
+  "FROM dbConcrete ",
+  "WHERE strength > 50 "
+)
+avg_agg <- sqldf::sqldf(sqlStmt)
+avg_agg
+```
+
+### Q4 How many concrete samples did not use any ash (i.e. had an ash content of 0)?
+```{r Q4}
+sqlStmt <- paste0(
+  "SELECT COUNT(cement) AS 'Number of Concrete Samples with no ash' ",
+  "FROM dbConcrete ",
+  "WHERE ash = 0 ")
+noAsh <- sqldf::sqldf(sqlStmt)
+noAsh
+```
+
+### Q5 Define an outlier as any value that is more than 3 standard deviations from the mean. List the concrete samples (with all columns) that had a concrete strength that can be considered an outlier
+```{r Q5}
+#no standard deviation function in sqldf(), need to calculate manually to avoid base R
+
+# calculate mean
+sqlStmt <- paste0(
+"SELECT AVG(strength) AS 'mean_str' ",
+"FROM dbConcrete")
+mean_strength <- sqldf::sqldf(sqlStmt)$mean_str
+
+# calculate sample size
+sqlStmt <- paste0(
+  "SELECT COUNT(strength) as 'num_sample' ",
+  "FROM dbConcrete ")
+sample <- sqldf::sqldf(sqlStmt)$num_sample
+
+# calculate standard deviation
+sqlStmt <- paste0(
+  "SELECT SQRT(SUM((strength - ",mean_strength,") * (strength - ",mean_strength, ")) / ",sample," - 1) AS 'stdev_str' ",
+  "FROM dbConcrete")
+sd_strength <- sqldf::sqldf(sqlStmt)$stdev_str
+
+
+#cutoff values
+outlier_upper <- round(mean_strength + (3 * sd_strength), 2)
+outlier_lower <- round(mean_strength - (3 * sd_strength), 2)
+
+#query values of interest
+#there are none but this would display all columns for them, test with different numbers
+sqlStmt <- paste0(
+  "SELECT * ",
+  "FROM dbConcrete ",
+  "WHERE strength > ", outlier_upper,
+  " OR strength < ", outlier_lower, 
+  " LIMIT 10; "
+)
+outliers <- sqldf::sqldf(sqlStmt)
+outliers
+```
+
+```{r double_check}
+# DOUBLE CHECK 
+meanR <- mean(dbConcrete$strength)
+stdevR <- sd(dbConcrete$strength)
+outlier_Rupper <- round((meanR + (3 * stdevR)),2)
+outlier_Rlower <- round((meanR - (3 * stdevR)),2)
+
+```
+The total sample size = **`r sample`**
+
+Mean Strength was calculated with SQL to be = **`r mean_strength`**
+
+One standard deviation was calculated with SQL to be = **`r sd_strength`**
+
+With outliers defined as 3 standard deviations from the mean, that makes our range **`r outlier_lower`** to **`r outlier_upper`**. There are no outliers in the given dataset. The *sample maximum* value is **`r max(dbConcrete$strength)`** and the *sample minimum* value is **`r min(dbConcrete$strength)`** which is within the range and therefore we don't have outliers.
+
+I also double checked the values with base R calculations for mean = **`r meanR`** and sd = **`r stdevR`**.The numbers are minorly different resulting in slightly different cutoff values but that still does not impact the outliers in the table.

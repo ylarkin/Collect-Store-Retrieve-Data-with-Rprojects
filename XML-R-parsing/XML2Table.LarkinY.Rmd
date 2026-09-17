@@ -1,0 +1,180 @@
+---
+title: "Extract XML into Tabular Structure"
+author: "Larkin, Yvonne"
+date: "Sp 2025, February 25"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+```{r Q2, echo = FALSE, warning=FALSE, message=FALSE}
+library(XML)
+library(RCurl)
+
+learning.dom <- xmlParse("http://artificium.us/datasets/LearningAssets-v3.xml", isURL = TRUE, validate = TRUE)
+```
+
+## Analysis of Learning Assets
+
+```{r Q3, echo=FALSE}
+# don't use XPath
+
+root <- xmlRoot(learning.dom)
+# size 3: Authors, Units, Learning Assets
+n <- xmlSize(root)
+
+#separate root's 3 child nodes into separate objects
+Author_node <- root[[1]]
+Units_node <- root[[2]]
+Learning_node <- root[[3]]
+
+#find number of child nodes to each child separated object
+num_authors <- xmlSize(Author_node)
+num_units <- xmlSize(Units_node)
+
+# has two child nodes that are siblings
+size_LearnNode <- xmlSize(Learning_node)
+count_deck <- 0
+count_video <- 0
+for(i in 1:size_LearnNode){
+  slidedeck <- xmlName(Learning_node[[i]])
+  if(slidedeck == "SlideDeck") {
+    count_deck <- count_deck + 1
+  } else if(slidedeck == "Video") {
+    count_video <- count_video + 1
+  }
+}
+unit_print <- NA
+if(num_units == 1) {
+  unit_print <- "1 unit"
+} else {
+  unit_print <- paste(num_units, "units")
+}
+
+author_print <- NA
+if(num_authors == 1) {
+  author_print <- "1 author"
+} else {
+  author_print <- paste(num_authors, "authors")
+}
+
+deck_print <- NA
+if(count_deck ==1) {
+  deck_print <- "1 slide deck"
+} else {
+  deck_print <- paste(count_deck, "slide decks")
+}
+
+video_print <- NA
+if(count_video == 1) {
+  video_print <- "1 video"
+} else {
+  video_print <- paste(count_video, "videos")
+}
+```
+The repository contains `r unit_print` written by a cadre of `r author_print` who produced `r deck_print` and `r video_print`.
+
+## Table of Learning Assets
+```{r Q4, echo = FALSE}
+#section ended up being very length and nested because I went with for loop as it was the first approach that came to mind
+#didn't even think of dplyr until next code chunk, because of the column names I wanted
+
+#initialize data frame
+df.LearningAsset <- data.frame(uniqueID = character(),
+                               typeLA = character(),
+                               titleLA = character(),
+                               unitName = character(),
+                               stringsAsFactors = FALSE
+                               )
+
+#go through each child node to add relevent data to df
+for(i in 1:xmlSize(Learning_node)) {
+  #global for loop environment
+  # attribute assetID
+  uniqueID <- xmlGetAttr(Learning_node[[i]], "assetID")
+  # type slide deck or video
+  typeLA <- xmlName(Learning_node[[i]])
+  # title
+  titleLA <-xmlValue(Learning_node[[i]][[1]])
+  # initialize lesson titles = character concatenated list
+  unitName <- character()
+  
+  
+  # first thought lessons might be fileType 
+  # but now I think lesson is the Unit it's contained in
+  # initialize empty matrix for Unit and assets
+  matrix_assets <- matrix(NA, nrow=0,ncol=2)
+  colnames(matrix_assets) <- c("unitName", "assetID")
+  
+  #nested loop
+  #iterate through child each unit node in big parent Units node
+  for(i in 1:num_units){
+    current_unit_node <- Units_node[[i]]
+    assets_pres <- NA
+    
+    #second nested
+    #iterate through next level of child nodes to find "asset"
+    for(k in 1:xmlSize(current_unit_node)){
+      unit_child <- xmlName(current_unit_node[[k]])
+      if(unit_child == "asset") {
+        #isolate value of interest
+        asset_id <- xmlGetAttr(current_unit_node[[k]], "assetID")
+        #add to list of attribute ids
+        assets_pres <- c(assets_pres, asset_id)
+      } 
+      #returns assets_pres character
+    }
+
+    #get title of current unit
+    unit_titles <- xmlValue(current_unit_node[[2]])
+    # concatenate assets_pres vector into single object with commas
+    unit_assets <- paste(assets_pres, collapse = ", ")
+    #create new pair for adding to matrix
+    new_row <- c(unit_titles, unit_assets)
+    #add to matrix
+    matrix_assets <- rbind(matrix_assets, new_row)
+    #returns matrix_assets
+  }
+  
+  #nested loop
+  # iterate through rows in matrix
+  for(j in 1:nrow(matrix_assets)){
+    # lookup attID of interest in current j-th row of matrix in second column
+    if(grepl(uniqueID, matrix_assets[j,2])){
+        unitName <- c(unitName, matrix_assets[j, 1])
+        } 
+  }
+  #APA citation: OpenAI. (2025w, February 26). Empty String N/A fix. ChatGPT. https://chatgpt.com/share/67beeb51-de9c-8006-85fb-b45880d9064e 
+  #stuck with initial approach similar to rest of this code structure
+  unitName <- paste(unitName, collapse = ", ")
+  if(unitName == "") {
+    unitName <- "N/A"
+  }
+  
+  new_entry <- data.frame(uniqueID = uniqueID,
+                          typeLA = typeLA,
+                          titleLA = titleLA,
+                          unitName = unitName,
+                          stringsAsFactors = FALSE
+                          )                
+  
+  df.LearningAsset <- rbind(df.LearningAsset, new_entry)
+}
+
+
+```
+
+```{r Q5, echo=FALSE, warning=FALSE, message=FALSE}
+library(knitr)
+library(dplyr) 
+tibble.LearningAsset <- as_tibble(df.LearningAsset)
+t.Learn <- tibble.LearningAsset %>%
+  rename(`Unique ID` = uniqueID,
+         `Media Type` = typeLA,
+         `Title of Lesson` = titleLA,
+         `In Unit Lessons` = unitName)
+table_LA <- kable(t.Learn, align = 'clll', caption = "Learning Asset Table")
+table_LA
+```
+

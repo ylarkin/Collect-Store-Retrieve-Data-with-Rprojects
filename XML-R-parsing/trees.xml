@@ -1,0 +1,8 @@
+<!DOCTYPE Trees [
+<!ELEMENT Trees (Species*)>
+<!ELEMENT Species (speciesID, biome, (continent+|country)+)>
+<!ELEMENT speciesID (#PCDATA)>
+<!ELEMENT biome (#PCDATA)>
+<!ELEMENT continent (#PCDATA)>
+<!ELEMENT country (#PCDATA)>
+]>

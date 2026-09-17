@@ -1,0 +1,181 @@
+---
+title: "DA5020 Assignment 07.2"
+author: "Larkin, Yvonne"
+date: "Sp 2025, February 25"
+output:
+  html_document:
+    df_print: paged
+---
+Instructions said to display results but did not mention about echoing code. I decided to echoed the code, had the object of interest printed as last line of a code chunk, and answered in a sentence with R markdown after each code chunk.
+
+```{r loadXML, warning=FALSE, message=FALSE}
+library(XML)
+library(RCurl)
+
+#url
+xml.url <- getURL("https://s3.us-east-2.amazonaws.com/artificium.us/datasets/Books7.xml")
+#load as DOM
+book.dom <- xmlParse(xml.url, validate = FALSE, asText = TRUE)
+```
+
+### Question 4
+Who is the author of the book with the title "Paradox Lost and Found"?
+```{r Q4}
+# 40min-45min of intro video (video helped a lot for entire assignment)
+#APA citation for canvas page: Lecture Video embedded at the Bottom. 07.1 / Overview & Lecture. (2024, February). https://northeastern.instructure.com/courses/206741/pages/07-dot-1-slash-overview-and-lecture?module_item_id=11745756 
+
+# XPath expression by title
+# // is relative to look anywhere in file
+#want child node title = criteria and retrieve sibling node author
+xpathEx <- "//books/book[title='Paradox Lost and Found']/author"
+
+#apply search criteria to extract value of author
+author_name <- xpathSApply(book.dom, xpathEx, xmlValue)
+author_name
+```
+The author is `r author_name`.
+
+### Question 5
+What are the title of the books written by "Corben, Ellen"?
+```{r Q5}
+#XPath expression by author
+
+xpathEx <- "//books/book[author='Corben, Ellen']/title"
+
+#apply search criteria to extract value of book title 
+titles_byCorben <- xpathSApply(book.dom, xpathEx, xmlValue)
+titles_byCorben
+```
+The title of the books written by "Corben, Ellen" are:
+`r titles_byCorben`
+
+### Question 6
+How many books are in their second or higher edition?
+```{r Q6}
+#around 48min of intro video
+#APA citation for canvas page: Lecture Video embedded at the Bottom. 07.1 / Overview & Lecture. (2024, February). https://northeastern.instructure.com/courses/206741/pages/07-dot-1-slash-overview-and-lecture?module_item_id=11745756 
+#by the way this was mind blowing as an explanation but made sense after
+xpathEx <- "count(//books/book[edition>=2]/title)"
+
+#apply search criteria to extract number of books on second or greater edition
+num_books <- xpathSApply(book.dom, xpathEx, xmlValue)
+num_books
+```
+There are `r num_books` books in their second or higher edition.
+
+### Question 7
+What are the titles of the books that sell for the lowest price?
+```{r}
+#use min aggregation function
+# retrieve prices
+xpathEx <- "//books/book[price=min(//books/book/price)]/title"
+
+#apply search criteria to price values
+book_lowestprice <- xpathSApply(book.dom, xpathEx, xmlValue)
+book_lowestprice
+```
+The title of the book that sells for the lowest price is `r book_lowestprice`.
+
+### Question8
+List the title and prices of all books in the "Romance" or "Science Fiction" genres.
+```{r}
+#APA citation for help combining expressions: OpenAi. (2025b, February 25). XPath error fix. ChatGPT. https://chatgpt.com/share/67be54e4-e0bc-8006-b930-7632bd4c8e1a
+# retrieve book title
+xpathEx <- "//books/book[genre='Science Fiction' or genre='Romance']/title"
+# retrieve book price
+xpathEx2 <- "//books/book[genre='Science Fiction' or genre='Romance']/price"
+
+#apply search criteria to book title with price
+books_title <- xpathSApply(book.dom, xpathEx, xmlValue)
+books_price <- xpathSApply(book.dom, xpathEx2, xmlValue)
+df.display <- data.frame(Title = books_title,
+                         Price = books_price,
+                         stringsAsFactors = FALSE)
+```
+The Title and Prices of all the books in either "Romance" or "Science Fiction" are displayed in data frame:
+`r df.display`
+
+### Question 9
+What is the number of all books that cost $80.00 or more?
+```{r}
+#around 48min of intro video
+#APA citation for canvas page: Lecture Video embedded at the Bottom. 07.1 / Overview & Lecture. (2024, February). https://northeastern.instructure.com/courses/206741/pages/07-dot-1-slash-overview-and-lecture?module_item_id=11745756 
+#by the way this was mind blowing as an explanation but made sense after
+xpathEx <- "count(//books/book[price>=80.00]/title)"
+
+#apply search criteria to extract number of books on second or greater edition
+num_books <- xpathSApply(book.dom, xpathEx, xmlValue)
+num_books
+```
+The number of books that cost more than $80.00 = `r num_books`.
+
+### Question 10
+Use a Combination of XPath and R to find the titles and authors of all books or magazines that have "Garden" in their description or genre if there is no description.
+```{r Q11}
+#'book.dom' (the XML file as DOM) established in first code chunk
+
+#root node
+book <- xmlRoot(book.dom)
+#root node has 2 child nodes: 1 is books and 2 is magazines
+n <- xmlSize(book)
+
+#all books in root node
+book_list <- book[[1]]
+# 16 books (i.e child nodes)
+num_books <- xmlSize(book_list)
+
+#initialize empty df
+garden_df <- data.frame(Title = character(),
+                          Author = character(),
+                          stringsAsFactors = FALSE)
+#iterate through books and search their index
+for(i in 1:num_books){
+  #index genre and description
+  genre <- xmlValue(book_list[[i]][[3]])
+  description <- xmlValue(book_list[[i]][[7]])
+  #if either contain 'Garden append both to garden_df
+  if(grepl("Garden", genre) | grepl("Garden", description)){
+    #add c(author, title) by index
+    author <- xmlValue(book_list[[i]][[1]])
+    title <- xmlValue(book_list[[i]][[2]])
+    garden_df <- rbind(garden_df, data.frame(Title = title, Author = author, stringsAsFactors = FALSE))
+  } 
+}
+
+#repeated same process here because it was the first way I thought to solve this, I would need more time to refine further down to one loop
+# all magazines in root node
+mag_list <- book[[2]]
+# 4 magazines (i.e. child nodes)
+num_mags <- xmlSize(mag_list)
+
+#iterate through magazines and search their index, but append to same garden_df
+for(i in 1:num_mags){
+  #index genre only since magazine has no description
+  genre <- xmlValue(mag_list[[i]][[3]])
+  #if it contains 'Garden append author and title to garden_df
+  if(grepl("Garden", genre)){
+    #add author and title by index
+    author <- xmlValue(mag_list[[i]][[1]])
+    title <- xmlValue(mag_list[[i]][[2]])
+    garden_df <- rbind(garden_df, data.frame(Title = title, Author = author, stringsAsFactors = FALSE))
+  } 
+}
+```
+All Books or Magazines pertaining to "Garden" are displayed with the Title of Books and their Author in data frame:
+`r garden_df`
+
+
+### Question 11
+Use a combination of XPath and R to find the median price of all magazines published in 2023
+```{r}
+xpathEx <- "//magazines/magazine[year=2023]/price"
+
+#all magazine prices for 2023
+mag_price <- xpathSApply(book.dom, xpathEx, xmlValue)
+#place prices in order and make numeric
+sorted_price <- sort(as.numeric(mag_price))
+#find median
+median_price <- median(sorted_price)
+median_price
+```
+The median price of all magazines published in 2023 is: `r median_price` (the units are not defined).

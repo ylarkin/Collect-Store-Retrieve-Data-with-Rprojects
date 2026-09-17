@@ -1,0 +1,418 @@
+---
+title: "Data Analytics Visualization"
+author: "Larkin, Yvonne"
+date: "Sp 2025, February 18th"
+output:
+  html_document:
+    df_print: paged
+subtitle: DA5020 / Practicum I
+---
+
+## Part A: Configuring the Analytics Notebook
+Load [pharma-sales-randomized.tsv](https://s3.us-east-2.amazonaws.com/artificium.us/datasets/pharma-sales-randomized.tsv) to tibble named *df.pharmaSales* for easier manipulation using dplyr package instead of base R dataframe.
+
+I also loaded all packages needed to knit this file and programmed to install if a package was missing. This was adapted from [6.100 Beginning R: Installing Packages](http://artificium.us/lessons/06.r/l-6-100-beginning-r/l-6-100.html#Installing_Packages) notes.
+
+All code chunks are echoed for this assignment but I have suppressed warnings and messages.
+
+```{r PartA, warning=FALSE, message=FALSE}
+packages <- c("knitr", "kableExtra", "lubridate", "tidyverse")
+for(i in 1:length(packages)){
+  if(packages[i] %in% rownames (installed.packages()) == FALSE){
+    install.packages(packages[i])
+  }
+}
+# I read the library{base} for "? require()" in help tab of RStudio
+for(i in 1:length(packages)){
+  require(packages[i], character.only = TRUE, warn.conflicts = FALSE, quietly = TRUE)
+}
+#create tibble of tsv file
+#assigned type to each column, n(number) preserved the data entries while excluding $ but dates varied too much to use anything other than c(character) assignment
+# read R documentation on read_tsv() for argument handling
+df.pharmaSales <- read_tsv("https://s3.us-east-2.amazonaws.com/artificium.us/datasets/pharma-sales-randomized.tsv", col_types = list("c", "n", "n"))
+
+print(head(df.pharmaSales, 4))
+```
+
+## Part B: Preparing and Shaping the Data
+
+For preparing and shaping the data RStudio's Help tab provided a lot of literature on the functions and their parameter options. I wrote code chunks separately for each subsection of Part B.
+
+### Section I: Detect and Manage Outliers
+
+The notes on [3.203 Detecting and Managing Outliers](http://artificium.us/lessons/03.ml/l-3-203-outliers/l-3-203.html) was very helpful to approach this problem. I defined an outlier as a data point that is more than **3 standard deviations** away from the sample's respective category mean (revenue or expenses).
+
+```{r partI_detect_Outliers, warning=FALSE, message=FALSE}
+#APA citation for code chunk of notes on how to handle outliers: Schedlbauer, M. (2024, June 4). Implementation in R. 3.203 Detecting and Managing Outliers. http://artificium.us/lessons/03.ml/l-3-203-outliers/l-3-203.html 
+#outlier is a data point more than 3sd from the mean
+# revenue outliers
+rev.mean <- mean(df.pharmaSales$revenue, na.rm = TRUE) #remove NA values
+rev.sd <- sd(df.pharmaSales$revenue, na.rm = TRUE)
+#calculate z-score for revenue 
+z.Rev <- abs((df.pharmaSales$revenue - rev.mean)/rev.sd)
+# identify row numbers for revenue outliers
+rev.outliers <- which(z.Rev > 3)
+# expenses outliers
+exp.mean <- mean(df.pharmaSales$expenses, na.rm = TRUE) #remove NA values
+exp.sd <- sd(df.pharmaSales$expenses, na.rm = TRUE)
+#calculate z-score for expenses
+z.Exp <- abs((df.pharmaSales$expenses - exp.mean)/exp.sd)
+# identify row numbers for expenses outliers
+exp.outliers <- which(z.Exp > 3)
+print(paste0("Number of Revenue Outliers: ", length(rev.outliers), " Number of Expenses Outliers: ", length(exp.outliers)))
+
+```
+Ultimately, I am choosing to treat my outliers and (most) missing values in the same way, by replacing them with a value calculated using the mean of all known **sets'** difference in *revenue* and *expenses*.
+
+In order to prepare for that and simplify my code later, I replaced all outliers with *NA_real_* value.
+
+```{r partI_continued_replace_outliers, warning=FALSE, message=FALSE}
+# replace outlier value with NA, reworked from loop
+#APA citation: OpenAI. (2025r, February 17). For loop to dplyr. ChatGPT. https://chatgpt.com/c/67b43c10-6268-8006-82f6-3ecb21f6d95e 
+df.pharmaSales <- df.pharmaSales %>%
+  mutate(
+    revenue = if_else(row_number() %in% rev.outliers, NA_real_, revenue),
+    expenses = if_else(row_number() %in% exp.outliers, NA_real_, expenses)
+      )
+```
+### Section II: Identify and Manage Missing Values
+
+I chose to replace NA values of incomplete sets where either the *revenue* or the *expenses* was known because this data set is small. I need to stick close to the average generated, after excluding outliers, so that I am not skewing the data towards one end or another. Additionally this file only has one data point corresponding to each month across time. Excluding a data point because of an incomplete set would lead to greater jumps between the monthly average projection and differences. I only chose the delete data points where both the *revenue* and the *expenses* data were missing (though there were none in this tsv file). Below I calculate the missing data's estimated value by either *adding* the mean difference of known sets to *expenses* or *subtracting* the mean difference of known sets from *revenue*. 
+
+```{r partII_replace_NA_values, warning=FALSE, message=FALSE}
+# needed help converting loops to dplyr functions correctly
+#APA citation: OpenAI. (2025p, February 17). dplyr filter row exclusion. ChatGPT. https://chatgpt.com/share/67b55c3e-5998-8006-884c-8963a8bb15ea 
+filtered.df <- df.pharmaSales %>%
+  filter(!(row_number() %in% exp.outliers | row_number() %in% rev.outliers))
+
+filtered.df <- filtered.df %>%
+  mutate(difference = revenue - expenses)
+
+#excludes outliers in section I
+mean.difference <- mean(filtered.df$difference, na.rm = TRUE)
+sd.difference <- sd(filtered.df$difference, na.rm = TRUE)
+z.score.difference <- abs((filtered.df$difference - mean.difference)/ sd.difference)
+
+#index row that are outliers according to new 2.5 cutoff
+differences.outliers <- which(z.score.difference > 2.5)
+
+#new filtered.df excluding outliers found in section I and II(above)
+filtered.df.new <- filtered.df %>%
+  filter(!row_number() %in% differences.outliers)
+
+mean.difference.used <- mean(filtered.df.new$difference, na.rm = TRUE)
+
+#replace all missing values, as long as there is either an expense or revenue value
+#APA citation: OpenAi. (2025, February 17). dplyr NA replacement. ChatGPT. https://chatgpt.com/share/67b55cbb-f618-8006-a5c6-1b24d1e9e509 
+# decided to create a tibble of excluded values to preserve for future reference if needed (in this case there are no dates where both values are NA)
+excludedSales <- df.pharmaSales %>%
+  filter(is.na(expenses) & is.na(revenue))
+
+df.pharmaSales <- df.pharmaSales %>%
+  filter(
+    #filter out any datasets that have neither value
+    !(is.na(expenses) & is.na(revenue))
+    ) %>%
+  mutate(
+    #assign new data value to any previously incomplete sets
+    expenses = ifelse(is.na(expenses), revenue - round(mean.difference.used, 2), expenses),
+    revenue = ifelse(is.na(revenue), expenses + round(mean.difference.used, 2), revenue)
+  )
+```
+
+Because we are not only looking at the overall trend but also making projections, I chose to be more conservative in my *mean difference* value by using a standard deviation cutoff of 2.5 for outlier detection. In this case `r length(differences.outliers)` outliers were removed before calculating the mean difference = `r mean.difference.used`.
+
+### Section III: Split Date into Three Columns
+
+Notes on [6.113 Working with Date and Time Values in R](http://artificium.us/lessons/06.r/l-6-113-date-time-in-r/l-6-113.html#Parsing_Date_Strings) was very helpful to address this section. I also read RStudio's Help tab on lubridate package, functions, and parameters to approach date and time problems in this assignment.
+
+```{r partIII_split_dates, warning=FALSE, message=FALSE}
+#APA citation: Schedlbauer, M. (2024b, January 24). The lubridate Package. 6.113 Working with Date and Time Values in R. http://artificium.us/lessons/06.r/l-6-113-date-time-in-r/l-6-113.html
+#Parsing_Date_Strings 
+df.pharmaSales <- df.pharmaSales %>%
+  mutate(
+    date = mdy(date),
+    month = month(date, label = TRUE, abbr = FALSE),
+    day = day(date),
+    year = year(date)
+  )
+print(head(df.pharmaSales, 4))
+```
+
+```{r partIV_profitLoss, warning=FALSE, message=FALSE}
+# the context I used to account for NA values in partII
+#add as column to current data frame
+df.pharmaSales <- df.pharmaSales %>%
+  mutate(
+    ProfitLoss = (revenue - expenses) * 1000
+  )
+print(head(df.pharmaSales, 4))
+```
+
+## Part C : Aggregating Data in Tables
+
+This section also has the code blocks divided by section to create each Table display. Notes from [Data Manipulation with dplyr](http://artificium.us/lessons/06.r/l-6-107-dplyr/l-6-107.html#Prequisites) was very helpful for this entire part as I am more used to loop logic and had to work a lot to implement dplyr logic instead, I have the sections of AI help on converting the logic more accurately cited in blocks.
+
+### Section I: Table for Quarterly Revenue Per Year
+
+There were no "quarters" defined in the Practicum. I know it can vary depending on the company or need, where finances often have the fiscal year begin in August. However for the purposes of this assignment I defined my quarters at the start of the Gregorian calendar with the month January.
+
+```{r partI_quarterlyRev_perYearTable, warning=FALSE, message=FALSE}
+# define quarters 
+Q1 <- c("January", "February", "March")
+Q2 <- c("April", "May", "June")
+Q3 <- c("July", "August", "September")
+Q4 <- c("October", "November", "December")
+
+# make column to group by quarter
+#APA citation: OpenAI. (2025r, February 17). Group by Year Quarter. ChatGPT. https://chatgpt.com/share/67b55ced-3e5c-8006-8941-67e4d5fcd29c 
+df.pharmaSales <- df.pharmaSales %>%
+  mutate(
+    quarter = case_when(
+      month %in% Q1 ~ "Q1",
+      month %in% Q2 ~ "Q2",
+      month %in% Q3 ~ "Q3", 
+      month %in% Q4 ~ "Q4",
+      TRUE ~ NA_character_
+    )
+  )
+
+#group table by quarter and year (where I use quarter first, so the years are visually easy to compare)
+rev_table <- df.pharmaSales %>%
+  group_by(quarter, year) %>%
+  summarize(total_revenue = sum(revenue) * 1000, .groups = "keep") %>%
+  mutate(
+    total_revenue = format(total_revenue, big.mark = ",", scientific = FALSE),
+    total_revenue = paste0("$", total_revenue)
+    ) %>%
+  rename(
+    `Quarter` = quarter,
+    `Year` = year,
+    `Total Revenue` = total_revenue
+  )
+
+#APA citation: Yihui Xie, C. D. (2024, September 17). R markdown cookbook. 10.2 The kableExtra package. https://bookdown.org/yihui/rmarkdown-cookbook/kableextra.html 
+#collapse by quarter
+rev_table <- rev_table %>%
+  kable(
+    caption = "Revenue total by Quarter Each Year",
+    align = 'ccr',
+    format = "html"
+  ) %>%
+  kable_styling(full_width = TRUE) %>%
+  collapse_rows(columns = 1, valign = "middle") 
+
+rev_table
+```
+
+
+
+### Section II: Table of Revenue, Expenses, and Profit-Loss Per Month averaged across Years
+
+Group data to have average of all values for a given category in a specific month regardless of corresponding year.
+
+```{r partII_RevExpLoss_perMonthTable, warning=FALSE, message=FALSE}
+# group by month and average all values
+avg_per_month_table <- df.pharmaSales %>%
+  group_by(month) %>%
+  summarize(avg_rev = mean(revenue) * 1000,
+            avg_exp = mean(expenses) *1000,
+            avg_loss = round(mean(ProfitLoss), 2)) %>%
+  mutate(
+    #add commas for thousands and $
+    avg_rev = format(avg_rev, big.mark = ",", scientifci = FALSE),
+    avg_rev = paste0("$", avg_rev),
+    avg_exp = format(avg_exp, big.mark = ",", scientifci = FALSE),
+    avg_exp = paste0("$", avg_exp),
+    avg_loss = format(avg_loss, big.mark = ",", scientifci = FALSE),
+    avg_loss = paste0("$", avg_loss),
+  ) %>%
+  rename(
+    #make nicer for table display
+    `Average Revenue` = avg_rev,
+    `Average Expenses` = avg_exp,
+    `Average Profit Loss` = avg_loss,
+    `Month` = month
+  )
+
+avg_per_month_table <- avg_per_month_table %>%
+  kable(
+    caption = "Averages by Month across all Years",
+    align = 'lccc',
+    format = "html"
+  ) %>%
+  kable_styling(full_width = TRUE) %>%
+  column_spec(1, column = )
+
+avg_per_month_table
+```
+
+### Section III: Percentage Change in Revenue, Expenses, and Profit-Loss from the Prior Month
+
+$$\text{% Change in X} = \frac{\text{Current Month's Value X} - \text{Previous Month's Value X}}{\text{Previous Month's Value X}} \times 100$$ where X is the category: revenue, expenses, or profit-loss
+
+```{r partIII_percentChange_eachYearTable, warning=FALSE, message=FALSE}
+#APA citation: OpenAI. (2025s, February 17). Percent Change dplyr instead of loop. ChatGPT. https://chatgpt.com/share/67b55d27-b914-8006-9890-e64bb3d8cf02 
+percent_change_table <- df.pharmaSales %>%
+  arrange(year, date) %>%
+  mutate(
+    #calculate percent change from previous month
+    perc_revChange = round(((revenue - lag(revenue)) / lag(revenue)) * 100, 2),
+    perc_expChange = round(((expenses - lag(expenses)) / lag(expenses)) * 100, 2),
+    perc_lossChange = round(((ProfitLoss - lag(ProfitLoss))/ lag(ProfitLoss)) * 100, 2)
+  ) %>%
+  rename(
+    #format nicer for table, but still currently a tibble
+    `% Change of Revenue` = perc_revChange,
+    `% Change of Expenses` = perc_expChange,
+    `% Change of Profit Loss` = perc_lossChange,
+    `Month` = month,
+    `Year` = year
+  )
+
+#make table from tibble
+percent_change_table <- percent_change_table[,c(4,6,9:11)] %>%
+  kable(
+    caption = "Percent Change of Current Month from Previous Month",
+    align = 'lcccc',
+    format = "html"
+  ) %>%
+  kable_styling(full_width = TRUE)
+
+percent_change_table
+```
+
+## Part D : Making a Forecast
+
+Instructions at start of the Practicum say to project the next two months not just one month as stated in this Part D section so I did the 2 month projection but had a really hard time trying to integrate a function made with a loop into the dyplr functionality. Because of that I have a very redundant code chunk to calculate the second month projection. 
+
+
+```{r partD_forecast, warning=FALSE, message=FALSE}
+#WMA (weighted moving average) of prior 3 months with 0.6, 0.3, 0.1 from most recent to older
+weights <- c(0.6, 0.3, 0.1)
+weighted_average <- df.pharmaSales %>%
+  arrange(date) %>%
+  # calculate weighted moving average for revenue and expenses
+  # change lag to n = 0,1,2 because it is the current month and prior 2 months to project the next month not the prior 3 months to the current to project the next month
+  mutate( 
+    #n values (0 = current month; 1 = previous month; 2 = 2 months back)
+    #weighted average revenue calculation
+    wt_avg_rev = ifelse(row_number() > 2,
+                        lag(revenue, n = 0) * weights[1] + lag(revenue, n = 1) * weights[2] + lag(revenue, n = 2) * weights[3], NA_real_),
+    #weighted average expenses calculation
+    wt_avg_exp = ifelse(row_number() > 2,
+                        lag(expenses, n = 0) * weights[1] + lag(expenses, n = 1) * weights[2] + lag(expenses, n = 2) * weights[3], NA_real_),
+    #weighted average ProfitLoss calculation
+    wt_avg_PL = ifelse(row_number() > 2,
+                       lag(ProfitLoss, n = 0) * weights[1] + lag(ProfitLoss, n = 1) * weights[2] + lag(ProfitLoss, n = 2) * weights[3], NA_real_))
+#APA citation: OpenAI. (2025u, February 18). Weighted Moving Average R. ChatGPT. https://chatgpt.com/share/67b55d58-773c-8006-8d53-e440fdb7eb9f
+#did separately thought I don't know if fully necessary
+weighted_average <- weighted_average %>%
+    add_row(date = last(weighted_average$date) + months(1), 
+          revenue = last(weighted_average$wt_avg_rev),
+          expenses = last(weighted_average$wt_avg_exp),
+          month = month(date, label = TRUE, abbr = FALSE), 
+          day = day(date), 
+          year = year(date),
+          ProfitLoss = (revenue - expenses) * 1000,
+          quarter = case_when(
+            month %in% Q1 ~ "Q1",
+            month %in% Q2 ~ "Q2",
+            month %in% Q3 ~ "Q3", 
+            month %in% Q4 ~ "Q4",
+            TRUE ~ NA_character_))
+
+#I couldn't figure out how to streamline as a function to prevent redundancy in my code
+#for the purposes of achieving the 2 month forecast I repeated the code from above
+#It's very redundant from here to the bottom of the block, I appologize, I will work on it
+
+#this redoes the WMA calculation for all rows including the newly added one
+weighted_average <- weighted_average %>%
+  arrange(date) %>%
+  mutate( 
+    wt_avg_rev = ifelse(row_number() > 2,
+                        lag(revenue, n = 0) * weights[1] + lag(revenue, n = 1) * weights[2] + lag(revenue, n = 2) * weights[3], NA_real_),
+    wt_avg_exp = ifelse(row_number() > 2,
+                        lag(expenses, n = 0) * weights[1] + lag(expenses, n = 1) * weights[2] + lag(expenses, n = 2) * weights[3], NA_real_),
+    wt_avg_PL = ifelse(row_number() > 2,
+                       lag(ProfitLoss, n = 0) * weights[1] + lag(ProfitLoss, n = 1) * weights[2] + lag(ProfitLoss, n = 2) * weights[3], NA_real_))
+
+#this adds a SECOND new row of a projection
+weighted_average <- weighted_average %>%
+    add_row(date = last(weighted_average$date) + months(1), 
+          revenue = last(weighted_average$wt_avg_rev),
+          expenses = last(weighted_average$wt_avg_exp),
+          month = month(date, label = TRUE, abbr = FALSE), 
+          day = day(date), 
+          year = year(date),
+          ProfitLoss = (revenue - expenses) * 1000,
+          quarter = case_when(
+            month %in% Q1 ~ "Q1",
+            month %in% Q2 ~ "Q2",
+            month %in% Q3 ~ "Q3", 
+            month %in% Q4 ~ "Q4",
+            TRUE ~ NA_character_))
+
+#this redoes the WMA calculation for all rows including the newly added one
+weighted_average <- weighted_average %>%
+  arrange(date) %>%
+  mutate( 
+    wt_avg_rev = ifelse(row_number() > 2,
+                        lag(revenue, n = 0) * weights[1] + lag(revenue, n = 1) * weights[2] + lag(revenue, n = 2) * weights[3], NA_real_),
+    wt_avg_exp = ifelse(row_number() > 2,
+                        lag(expenses, n = 0) * weights[1] + lag(expenses, n = 1) * weights[2] + lag(expenses, n = 2) * weights[3], NA_real_),
+    wt_avg_PL = ifelse(row_number() > 2,
+                       lag(ProfitLoss, n = 0) * weights[1] + lag(ProfitLoss, n = 1) * weights[2] + lag(ProfitLoss, n = 2) * weights[3], NA_real_))
+
+print(tail(weighted_average, 6))
+```
+
+We were told to calculate the next month based on the given weights `r weights`. I printed the last 6 rows of the adjusted tibble, it contains the 2 forecasted months.
+
+$$\text{Weighted Average of X} = \left(\text{Current Months's X value} \times 0.06\right) + \left(\text{previous month's X value} \times 0.03\right) + \left(\text{X value from two months ago} \times 0.01\right)$$
+where X is the category : revenue, expenses, or profit-loss
+
+## Part E : Building a Visualization
+
+I used ggplot2 package instead of base R for plotting because it has more robust features. However I am very new to it so I needed RStudio help tab, [ggplot "cheatsheet"](https://github.com/rstudio/cheatsheets/blob/main/data-visualization.pdf), and AI assistance to understand how to utilize the function especially for finite adjustments to mimick the example [photo](https://northeastern.instructure.com/courses/206741/files/32748675/preview).
+
+I overlayed two line graphs in the same plot, where *Profit-Loss* is indicated by the blue line labeled *Monthly Deficit* and the calculated *Weighted Moving Average* is indicated by the red line labeled *Three-Month Moving Average*. I have the *Three-Month Moving Average* value based on the profit loss column (even though I caluclated it for all 3 categories above), this is to most closely match the pictured image and category comparison.
+
+```{r partE_visualization, warning=FALSE, message=FALSE}
+#APA citation: Basyar,  lqbal, & camille. (2019, October 3). Changing Placement & alignment of GGPLOT Legend Labels. Stack Overflow. https://stackoverflow.com/questions/58221686/changing-placement-alignment-of-ggplot-legend-labels 
+#APA citation: OpenAI. (2025u, February 18). Introduction to ggplot2. ChatGPT. https://chatgpt.com/share/67b5222d-eb40-8006-b230-48148cb9eaf8 
+weighted_average <- weighted_average %>%
+  mutate(filtered_ProfitLoss = ifelse(row_number() > (n() - 2), NA_real_, ProfitLoss))
+  
+ggplot(weighted_average, aes(x = date)) +
+  # remove the last 2 months because those are projections and not actual monthly deficits
+  geom_line(aes(y = filtered_ProfitLoss/1000, color = "Profit Loss"), na.rm = TRUE, size = 1) +
+  geom_line(aes(y = wt_avg_PL/1000, na.rm = TRUE, color = "Three-Month Moving Average"), size = 1) +
+  annotate("text", x = median(weighted_average$date, na.rm = TRUE), y = median(weighted_average$ProfitLoss/1000, na.rm = TRUE), label = "Monthly Deficit", color = "blue", vjust = -5, hjust = 0, size = 4) + 
+  #honestly don't fully understand vjust and hjust numeric shifting, I assume 0,0 is point of annotation and +/- operate as an axis, might be inverted?
+  #positive hjust goes left and negative goes right
+  #negative vjust goes up and positive goes down
+  annotate("text", x = median(weighted_average$date, na.rm = TRUE), y = max(weighted_average$wt_avg_PL/1000, na.rm = TRUE), label = "Three-Month Weighted Average", color = "red", vjust = 0, hjust = 0.35, size = 4) +
+  labs(x = NULL,
+       y = "Thousands $",
+       title = "Profit & Loss By Month",
+       subtitle = "Trend Over Time",
+       caption = "Internal Accounting Data -- CONFIDENTIAL\nPlaxium LLC\nFebruary 18, 2025"
+       ) +
+  scale_x_date(date_breaks = "12 months", 
+               date_labels = "%b %Y", 
+               minor_breaks = "1 month",
+               limits = c(min(weighted_average$date, na.rm = TRUE), max(weighted_average$date, na.rm = TRUE))
+               ) +
+  #kept this for color because without it the colors were a weird pastel version
+  scale_color_manual(values = c("Profit Loss" = "blue", "Three-Month Moving Average" = "red")) +
+  theme_minimal() +
+  theme(
+    legend.position = "none", #hide legend
+    plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    plot.caption = element_text(hjust = 0, size = 8), #align left
+    axis.title.y = element_text(angle = 0, vjust = 1.1)
+  ) 
+```
+

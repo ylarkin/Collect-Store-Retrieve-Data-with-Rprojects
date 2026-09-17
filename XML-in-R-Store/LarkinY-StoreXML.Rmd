@@ -1,0 +1,212 @@
+---
+title: "Store XML in Persistent Tables"
+subtitle: "Assignment 08.3"
+author: "Larkin, Yvonne"
+date: "Sp 2025, March12"
+output:
+  html_document:
+    df_print: paged
+---
+#### Q2 load xml file
+```{r Q2, warning=FALSE, message=FALSE}
+#load necessary libraries
+library(XML)
+library(RSQLite)
+library(DBI)
+library(sqldf)
+
+#load xml file to DOM in memory
+xmlURI <- "http://artificium.us/assignments/80.xml/a-80-305/gen-xml/data/restaurantSales.xml"
+xmlDOM <- xmlParse(xmlURI, validate = F)
+```
+
+```{r saveToObject}
+#save to object to inspect and use
+root <- xmlRoot(xmlDOM)
+```
+
+```{r createDB}
+fpath = ""
+dbfile = "LarkinY-XML-Data-DB.sqlitedb"
+
+# create a new database
+dbtxn <- dbConnect(RSQLite::SQLite(), paste0(fpath,dbfile))
+```
+
+```{sql connection=dbtxn}
+DROP TABLE IF EXISTS restaurants
+```
+
+```{sql connection=dbtxn}
+DROP TABLE IF EXISTS visits
+```
+
+#### Q4 make database tables
+I am not creating a "customer" table from the XML to database as it was not specified in the assignment and does not seem to impact the ability to complete the prompts. Especially with "payment" node combined into the "visit" table.
+
+```{sql connection=dbtxn}
+CREATE TABLE restaurants (
+  rid integer NOT NULL,
+  rname text,
+  rcity text,
+  rcountry text,
+  PRIMARY KEY (rid)
+  )
+```
+
+
+```{sql connection=dbtxn}
+CREATE TABLE visits (
+  vid integer NOT NULL,
+  rid integer,
+  vdate date,
+  vamount numeric,
+  vtype text NOT NULL CHECK(vtype IN('dine-in', 'take-out')),
+  wine text CHECK(wine IN('T', 'F')),
+  cc text CHECK(cc IN('mastercard', 'amex', 'visa', 'cash')),
+  amount numeric,
+  PRIMARY KEY (vid),
+  FOREIGN KEY (rid) REFERENCES restaurants(rid)
+  )
+```
+
+## First Table: restaurants
+#### Q5 insert all information about restaurants into SQL table restaurants
+```{r inseretRestaurantData}
+nRoot <- xmlSize(root)
+
+#initialize empty dataframe
+xml_df <- data.frame(
+  rname = c(),
+  rcity = c(),
+  rcountry = c(),
+  stringsAsFactors = FALSE
+)
+#iterate through entire XML in case data is changed or appended and results in new restaurants, i.e. we have more than the 3
+for(i in 1:nRoot){
+  rname <- xmlValue(root[[i]][[1]][[1]]) # name of restaurant
+  rcity <- xmlValue(root[[i]][[1]][[2]]) # city of restaurant
+  rcountry <- xmlValue(root[[i]][[1]][[4]]) # country of restaurant
+  
+  #append to dataframe
+  xml_df <- rbind(xml_df, data.frame(rname, rcity, rcountry, stringASFactors = FALSE))
+}
+```
+
+```{r restaurantGrouping}
+#group by to only see the unique restaurant entries , did this instead of DISTINCT 
+sqlStmt <- paste0(
+  "SELECT rname, rcity, rcountry ",
+  "FROM xml_df ",
+  "GROUP BY rname"
+)
+unique_restaurants <- sqldf::sqldf(sqlStmt)
+```
+
+#### Q5: synthetic key
+```{r Q5.SyntheticKey}
+#initiate empty vector
+rid <- integer()
+#loop through restaurant table and create unique ID for each 
+for(i in 1: nrow(unique_restaurants)){
+  rid[i] <- i + 1000
+}
+#append ID to table
+unique_restaurants$rid <- rid
+```
+ 
+```{r add_table_to_SQLdb}
+# add the values for the restaurant from unique_restaurants data frame to the SQL database dbtxn
+dbWriteTable(dbtxn, "restaurants", unique_restaurants, append = TRUE, row.names = FALSE)
+```
+
+CHECKING TO SEE IT WORKED
+```{sql connection=dbtxn}
+SELECT *
+FROM restaurants
+```
+
+## Second Table: Visits
+#### Q6 parse xml file information to SQL db
+[APA citation: OpenAI. (2025x, March 12). Fixing %in% with XML. ChatGPT.](https://chatgpt.com/share/67d23204-1ee0-8006-ae9c-764f182a2ace)
+```{r Q6.df_Visits}
+#iterate through entire XML 
+for(i in 1:nRoot){
+  #transaction number in attribute
+  vid <- xmlAttrs(root[[i]])
+  vid <- as.integer(gsub("txn","", vid)) + 5000
+  
+  # construct date from child nodes
+  vdate <- paste0(
+    xmlValue(root[[i]][["visit"]][["date"]][["year"]]),"-",
+    xmlValue(root[[i]][["visit"]][["date"]][["month"]]),"-",
+    xmlValue(root[[i]][["visit"]][["date"]][["day"]]))
+  vdate <- as.Date(vdate)
+  
+  # amount and tip values together but append in different order
+  amount <- as.numeric(xmlValue(root[[i]][["payment"]][["amount"]]))
+  vamount <- as.numeric(xmlValue(root[[i]][["payment"]][["tip"]])) + amount
+  
+  # visit type in attribute
+  vtype <- xmlAttrs(root[[i]][["visit"]])
+  
+  #APA citation: OpenAI. (2025x, March 12). Fixing %in% with XML. ChatGPT. https://chatgpt.com/share/67d23204-1ee0-8006-ae9c-764f182a2ace  
+  # did they have wine, not all nodes have this field
+  if("orderedWine" %in% names(xmlChildren(root[[i]][["visit"]]))){
+    wine <- 'T' #assume true if child node present because they all are self closing without a value
+  } else {
+    wine <- 'F' #assume false if omitted
+  }
+  
+  # not all nodes have cc field 
+  #some have cash payment, so I added that to the cc field instead of a new column
+  if(xmlAttrs(root[[i]][["payment"]]) == "CC"){
+    cc <- xmlAttrs(root[[i]][["payment"]][["cc"]])
+  } else ( 
+    cc <- xmlAttrs(root[[i]][["payment"]])
+  )
+  
+  # Q6 look up the rid based on the restaurant name from restaurants table in db
+  rname <- xmlValue(root[[i]][["restaurant"]][["name"]])
+  #use DBI function since instructions specified a SELECT lookup, inverse the quotation marksbecause of apostrophe in restaurant name
+  query <- paste0(
+    'SELECT rid ',
+    'FROM restaurants ',
+    'WHERE rname = "',
+    rname,
+    '" '
+  )
+  rid <- as.integer(dbGetQuery(dbtxn, query))
+  
+  #append to data base line by line instead of making a data frame and adding all at once like I did for restaurants
+  appendStmt <- paste0(
+    "INSERT INTO visits (vid, rid, vdate, vamount, vtype, wine, cc, amount) VALUES ('",
+    vid,"', ", rid,", '", vdate,"', ", vamount,", '", vtype,"' , '", wine,"', '", cc,"', ",
+    amount,") ")
+  silent <- dbExecute(dbtxn, appendStmt)
+}
+```
+
+CHECKING TO SEE IT WORKED
+```{sql connection=dbtxn}
+SELECT *
+FROM visits
+LIMIT 10
+```
+
+## Display Results
+#### Q7: Display a table that lists the name of each restaurant, the city it is in, the total number of visits to that restaurant, and the total spent at that restaurant for 2023.
+I wasn't sure which amount was being referenced with 'total spent': the food sales alone or the sales with tips. I included both but labeled to clarify.
+
+I also interpreted the instructions to mean that the total number of visits was not constrained by 2023, but the sales  were constrained by 2023. Because of this I filtered desired variables in 'SELECT' with 'CASE WHEN' instead of using 'WHERE' for *global* application. 
+
+[APA citation for year filter:
+OpenAI. (2023, March 12). SQLite year filter fix. ChatGPT.](https://chatgpt.com/share/67d24f9e-f124-8006-91b2-d0831581daf5)
+```{sql Q7, connection=dbtxn}
+SELECT R.rname AS 'Restaurant Name', R.rcity AS 'City', COUNT(V.vid) AS 'Total Number of Visits', SUM(CASE WHEN strftime('%Y', V.vdate) = '2023' THEN V.amount ELSE 0 END) AS 'Food Sales in 2023', SUM(CASE WHEN strftime('%Y', V.vdate) = '2023' THEN V.vamount ELSE 0 END) AS 'Revenue(with Tips) in 2023'
+FROM visits V JOIN restaurants R ON (V.rid = R.rid)
+GROUP BY R.rname
+ORDER BY SUM(V.amount)
+```
+
+ 

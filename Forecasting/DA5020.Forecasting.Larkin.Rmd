@@ -1,0 +1,304 @@
+---
+title: "Build Forecasting Models"
+author: "Larkin, Yvonne"
+date: "sp 2025, March 25th"
+output:
+  html_document:
+    df_print: paged
+subtitle: DA5020 / Assignment 10.1
+---
+
+```{r loadPackages, echo=FALSE, warning=FALSE, message=FALSE}
+suppressWarnings(library(forecast))
+suppressWarnings(library(ggplot2))
+suppressWarnings(library(lubridate))
+suppressWarnings(library(TTR))
+suppressWarnings(library(knitr))
+```
+
+```{r Q2_load_and_sort_data, echo=FALSE, message=FALSE, warning=FALSE}
+#load data from url
+water_usage <- read.csv("https://s3.us-east-2.amazonaws.com/artificium.us/datasets/WaterUsage-02-22-to-11-24.csv", stringsAsFactors = FALSE)
+
+#combine year and month data to one date formatted column, assuming 1st day for simplicity
+water_usage$date <- as.Date(paste(water_usage$Year, water_usage$Month, "01", sep = "-"))
+#order by date, oldest to newest
+water_usage <- water_usage[order(water_usage$date),]
+```
+
+```{r Q3_make_line_graph, echo=FALSE, message=FALSE, warning=FALSE}
+#convert daily water usage to time series data for use in modeling
+# want dynamic value so assign start to first value of the df column, but frequency is still 12 for 12 observations in a year due to 12 months
+daily_water_ts <- ts(water_usage$Avg.Daily.Water.Use.in.Liters , start = c(water_usage[1, "Year"], water_usage[1, "Month"]), frequency = 12)
+
+#graph date parameters
+n <- nrow(water_usage)
+start.date <- water_usage[1, "date"] %m-% months(1)
+end.date <- water_usage[n, "date"] %m+% months(1)
+
+#visualize with line graph example from Lecture:Trend Line: Schedlbauer, M. (2025b, January 23). Lecture: Trend Line. 3.303 Basic Time Series Forecasting. http://artificium.us/lessons/03.ml/l-3-303-time-series-forecasting-r/l-3-303.html#Linear_Regression_Trend_Model 
+#referred to: Schedlbauer, M. (2025b, January 24). `format` Function. 6.113 Working with Date and Time Values in R. http://artificium.us/lessons/06.r/l-6-113-date-time-in-r/l-6-113.html#format_Function 
+#APA for this and prior code chunks, about general understanding and order, I also looked into functions in R Help: OpenAI. (2025ae, March 25). Data Formatting for Graph. https://chatgpt.com/share/67e3394d-9e94-8006-9a19-2e32ffb2d6de 
+plot1 <- ggplot(water_usage, aes(date, daily_water_ts)) + geom_line() + labs(
+  title = "Line Graph of Water Useage over Time",
+  x = "Period by Month",
+  y = "Average Daily Water use in Thousands of Liters",
+  caption = "Average daily water consumption per time series period in monthly incrementations"
+) + scale_x_date(breaks = seq.Date(from = start.date, to = end.date, by = "6 months"), minor_breaks = seq.Date(from = start.date, to = end.date, by = "1 month"), date_labels = "%B-%Y")
+```
+## Question 3 Explanation <small>(also applies to Question 6 and 10)</small>
+
+In the line graph below you can see average daily water usage plotted each month over time. 
+
+Upon visual inspection you can see there is a consistent downward trend across months/years. There initially appear to be seasonality (regular, repeating patterns of cycles in the data) in the graph due to peaks and troughs. But, what type of cycle is not entirely clear and suggests an unknown factor impacting water usage. This is because it consistently has a peak to trough pattern, without a type of maintenance of values. But further inspection and the fact that average daily overall per month is used instead of seeing each individual day'
+s water usage and so we are simplifying the system. You are still able to see that it flop between peaks and troughs every 1 to 2 months which would lend itself to be more akin to noise. However, this is dealing in "thousands of liters" of water so those are large fluctuations (not small like noise) which again indicates a potential outside factor influencing the switch between peaks and troughs. Still, the seasonality is definitely not related to a calendar seasons or holidays (as is commonly associated with seasonality). If you visually compare the same months, or even quarters, in the graph above you can see examples of conflicts that correspond to time specific seasonality. Such as water usage in the month of March, it was a trough in 2022 and 2023, but it was the highest peak in 2024 (in addition to other comparisons).
+
+A simple moving average (SMA) and simple exponential smoothing (SES) are not useful models because niether can deal with trend or seasonality and this data exhibits a clear downward trend.
+
+Due to the trend in data models like weighted moving average (WMA) or Holt's Linear Trend Model could be useful.  WMA smooths out small fluctuations while maintaining the trend. However the data fluctuations observed are very large for the first half of the data, meaning a WMA is not going to work well overall but it could be useful if applied to just the recent half. Holt's Linear Trend Model could be more useful especially if expanded to deal with the cyclic nature of the data that seems to be potentially present. The seasonality is not super evident but seems to be more than just noise at it is a repetitive rise to peak followed by fall to troughs for water usage.
+
+The Linear Regression Trend Model (LTRM) is for a clear linear relationship in the dependent (water usage) and independent (time) variables, this does not appear to be the case and so I do not think it would be a good fit.  Because while there is a trend in one direction there does not seem to be a direct link between the two variables, or rather there is a third external variable that is playing a part to affect the dependent water usage, causing fluctuations. 
+
+Lastly we have the ARIMA covered in module 10, it is able to deal with trend, stationary and non-stationary data that can exhibit seasonality. Due to the blending of techniques in ARIMA it would probably be the most comprehensive coverage to accurately represent a model to predict values close to the observed. 
+
+Of the models discussed we are comparing the Linear Regression Trend Model and the Weighted Moving Average, and based onm use cases the WMA should prove more effective than the LRTM.
+
+
+```{r Q4_linear_model, echo=FALSE, message=FALSE, warning=FALSE}
+# assigned data period for use in model
+water_usage$period <- c(1:nrow(water_usage))
+lm_period <- water_usage$period
+# linear trend line (regression) forecasting model
+wu_lm_mod <- lm(daily_water_ts ~ lm_period)
+# assign intercept and slope to object variables
+intercept_wu <- wu_lm_mod$coefficients[[1]]
+slope_wu <- wu_lm_mod$coefficients[[2]]
+lm_mod_sum <- summary(wu_lm_mod)
+```
+
+## Question 3 Line Graph with Question 4 Regression Line Overlay
+
+I have overlaid the linear regression trend line, calculated based on the data where each month is a unique period point showing the daily average water consumption in the time series. The regression line is based off the linear model summarized here:
+```{r Q4_plot_regression_line, echo=FALSE, warning=FALSE, message=FALSE}
+#vector operation, forecast values to plot line on graph
+water_usage$lm_predicted <- round(intercept_wu + (slope_wu * water_usage$period),0)
+
+#object assignment
+lm_label <- paste0("Trend Line = ", round(intercept_wu, 1)," + (", round(slope_wu, 1), " * x)")
+
+#overlay linear regression line
+plot2 <- plot1 + geom_line(aes(x = water_usage$date, y = water_usage$lm_predicted), color = "red", linetype = "solid") + geom_text(aes(x = water_usage$date[n/2], y = water_usage$lm_predicted[n/2], label = lm_label), vjust = -3, color = "red")
+plot2
+```
+
+```{r Q5_meanStandardError_lm, echo=FALSE, message=FALSE, warning=FALSE}
+#for visual table
+water_usage$lm_error <- wu_lm_mod$residuals
+#mean of the squared errors which are the residuals calculated by lm()
+mse_lm_wu <- mean((wu_lm_mod$residuals)^2, na.rm = TRUE)
+```
+## Question 5
+
+The linear regression model of the graphed data has a mean squared error (MSE) of `r round(mse_lm_wu,1)`. 
+
+The MSE is the average of all the squared errors as the name indicates and a model evaluation tool to try and quantify errors. It amplifies any errors in the data set, meaning a large number indicates that your model predictions result in some significant errors that are far from the observed data points. In general, you want your MSE to be close to 0 which would indicate there is "no error" or deviation between the predicted and observed values for a given point. More broadly, a low MSE value (closer to 0) would indicate that the model's predicted values are close to the actual observed data point. Conversely, a large MSE (farther from 0) would indicate that the predicted value is far from the observed data point.
+
+The number on it's own can't tell us much aside from if there is an emphasize on model prediction error. MSE and other model evaluation values are also a helpful comparison value between models. Whichever model has a lower MSE is considered a more accurate model for the data set. So next we will create a weighted moving average (WMA) model and calculate it's MSE as a means of comparison to see which model would more accurately predict a value close to the observed.
+
+## Question 6
+
+```{r Q6_WMA_model, echo=FALSE, message=FALSE, warning=FALSE}
+#4 month weighted moving average forecasting model
+#APA: Schedlbauer, M. (2025c, January 23). Using WMA Function from TTR. 3.303 Basic Time Series Forecasting. http://artificium.us/lessons/03.ml/l-3-303-time-series-forecasting-r/l-3-303.html#Weighted_Moving_Average 
+#leftmost weight applies to the most recent value
+weights <- c(0.6, 0.2, 0.1, 0.1)
+#use function WMA from TTR package instead of making function similar to 3.303 notes for 'Calculating WMA in R'
+wu_wma_mod <- water_usage$wma <- WMA(daily_water_ts, n = length(weights), wts = weights)
+wma_mod_sum <- summary(wu_wma_mod)
+```
+The WMA created is a 4 month weighted moving average, where a predicted data point is the result of the prior 4 month's values at different impact levels. The weights designated are `r weights[1:4]` and the summary of the WMA is :
+`r wma_mod_sum`
+
+```{r Q7_meanStandardError_wma, echo=FALSE, message=FALSE, warning=FALSE}
+water_usage$wma_error <- daily_water_ts - water_usage$wma
+#mean squared error of the wma residuals
+mse_wma_wu <- mean((water_usage$wma_error)^2, na.rm = TRUE)
+```
+
+The 4 month WMA has an MSE of : `r mse_wma_wu`
+The same explanation of MSE applies, but our WMA is a smoothing technique so we would expect it to be closer than the linear regression model which is trying to make a best fit line between all of the peaks and troughs.
+
+## Question 8
+```{r Q8_table, echo=FALSE, warning=FALSE, message=FALSE}
+mse_table_data <- data.frame(
+  Model = c("Linear Regression", "Weighted Moving Average"),
+  MSE = c(mse_lm_wu, mse_wma_wu)
+)
+mse_table <- kable(mse_table_data, align = c('l', 'c'), digit = 1, caption = "Mean Standard Error Comparison")
+```
+`r mse_table`
+Based on the MSE values alone we would say that the weighted moving average model is almost two times more accurate than the linear regression model.
+
+```{r Q9_ensemble_Model_function, echo=FALSE, message=FALSE, warning=FALSE}
+#ensemble model function given a time series using models from 4 and 6
+forecasted_value <- function(ts_dependent_variable, independent_variable) {
+  
+  # number of entries for time series data
+  n <- length(ts_dependent_variable)
+  
+  # model from Q4 (used code since I didn't code as function)
+  # linear regression calculation
+  lm_mod <- lm(ts_dependent_variable ~ independent_variable)
+  intercept_lm <- lm_mod$coefficients[[1]]
+  slope_lm <- lm_mod$coefficients[[2]]
+  # error
+  mse_lm <- mean((lm_mod$residuals)^2, na.rm = TRUE)
+  # forecast next value
+  lm_forecast <- intercept_lm + (slope_lm * (n + 1))
+  
+  # model from Q6 (used code since I didn't code as function)
+  # wma calculation
+  # weights sum to 1
+  weights <- c(0.6, 0.2, 0.1, 0.1)
+  wma_v <- WMA(ts_dependent_variable, n = length(weights), wts = weights)
+  wma_error <- ts_dependent_variable - wma_v
+  # error
+  mse_wma <- mean((wma_error)^2, na.rm= TRUE)
+  # forecast next value (same as last value of wma mod)
+  wma_forcast <- tail(wma_v, 1)
+  
+  # compare mse values, smaller one has forecast times weight of 0.7 [and smaller has 0.3 weight]
+  # weights sum to 1 for bottom division
+  if(mse_lm > mse_wma) {
+    ensemble_forecast <- ((0.3 * lm_forecast) + (0.7 * wma_forcast))
+    bigger_error <- "LM 0.3, WMA 0.7"
+    
+  } else if(mse_wma > mse_lm) {
+    ensemble_forecast <- ((0.7 * lm_forecast) + (0.3 * wma_forcast))
+    bigger_error <- "WMA 0.3, LM 0.7"
+  } else if (mse_wma == mse_lm) {
+    #if equal they would be the same weight value in theory so divide by 2 not the weight
+    ensemble_forecast <- (lm_forecast + wma_forcast)/2
+    bigger_error <- "Both Models have equal Weight"
+  } 
+  # return next point forecast in time series and states which Model had the larger MSE error
+  return(list(round(ensemble_forecast, 0), bigger_error))
+}
+# use function made above, accepts 2 arguments and gives list of 2 values, would need to index answer[[1]] for ts forecast
+#ensemble forecast answer, list 1 provides the forecasted ts value, and list 2 gives you the model with larger error
+answer <- forecasted_value(daily_water_ts, water_usage$period)
+```
+
+```{r Q10_ensemble_value, echo=FALSE, message=FALSE, warning=FALSE}
+#in order to calculate MSE value need to find values for all data observations and calculate each error
+#initialize column with 0 as value for predicted values
+water_usage$ensemble_predicted <- 0
+# ensemble forecast values
+for(i in 1:n){
+  #same as just i without assignment but to extra clarify the period value
+  lm_predicted <- water_usage[i, "lm_predicted"]
+  wma_predicted <- water_usage[i, "wma"]
+  
+  #loop through values and assign ensemble value
+  # refers to variables calculated in Q5 and Q7
+  if(mse_wma_wu > mse_lm_wu){
+    #weights sum to 1 for division
+    water_usage[i, "ensemble_predicted"] <- (0.7 * lm_predicted) + (0.3 * wma_predicted)
+  } else if (mse_wma_wu < mse_lm_wu){
+    water_usage[i, "ensemble_predicted"] <- (0.3 * lm_predicted) + (0.7 * wma_predicted)
+  } else if (mse_wma_wu == mse_lm_wu){
+    # both models hold equal weight so divide by 2
+    water_usage[i, "ensemble_predicted"] <- (lm_predicted + wma_predicted)/2
+  }
+}
+```
+
+```{r Q10_MSE_ensemble, echo=FALSE, message=FALSE, warning=FALSE}
+#ensemble forecast error
+water_usage$ensemble_error <- daily_water_ts - water_usage$ensemble_predicted
+#ensemble MSE
+mse_ensemble <- mean((water_usage$ensemble_error)^2, na.rm = TRUE)
+```
+
+```{r Q11_point_forecast, echo=FALSE, warning=FALSE, message=FALSE}
+# forecast the next data point in the time series
+#re-establish variables
+n <- nrow(water_usage)
+# linear trend line (regression) forecasting model
+wu_lm_mod <- lm(daily_water_ts ~ lm_period)
+# assign intercept and slope to object variables
+intercept_wu <- wu_lm_mod$coefficients[[1]]
+slope_wu <- wu_lm_mod$coefficients[[2]]
+#define next data value in time series of length n
+lm_forecast <- round((intercept_wu + (slope_wu * (n + 1))),0)
+#forecast is last value in the wma column made from wma model
+wma_forecast <- round(water_usage[n, "wma"],0)
+#forecast is the last value in the ensemble column made from the combined forecasts
+ensemble_forecast <- round(water_usage[n,"ensemble_predicted"],0)
+```
+
+```{r Q11_point_forecast_table, echo=FALSE, warning=FALSE, message=FALSE}
+#utilize ensemble function list 2 answer
+ensemble_text <- paste0("Ensemble Model (Model + weight): ", answer[[2]])
+# consolidate forecast values in table, add MSE for all models for quick reference
+forecast_values <- data.frame(
+  model_type = c("Linear Regression Model (LM)", "Weighted Moving Average Model (WMA)", ensemble_text),
+  forecast_v = c(lm_forecast, wma_forecast, ensemble_forecast),
+  MSE = unlist(lapply(c(mse_lm_wu, mse_wma_wu, mse_ensemble), round, digits = 1))
+)
+forecast_table <- kable(forecast_values, caption = 'Next Predicted "Avg Daily Water Use" in Thousands of Liters', col.names = c("Model Type", "Forecasted Value", "MSE for Model"))
+```
+
+```{r variable_for_text, echo=FALSE, warning=FALSE, message=FALSE}
+last_month <- format(water_usage[n, "date"], format = "%B")
+last_year <- format(water_usage[n, "date"], format = "%Y")
+next_month <- format(water_usage[n, "date"] %m+% months(1), format = "%B")
+next_year <- format(water_usage[n, "date"] %m+% months(1), format = "%Y")
+```
+## Question 10 and 11
+
+In the table below, there are 3 different point forecasts with their corresponding model and MSE listed. The combined ensemble forecasting model is considered the best fit of the 3 used because it has the lowest MSE value (as explained previously). The MSE is based on all errors up to `r last_month` `r last_year`. There is no observed data point to compare to the "Forecasted Value" corresponding to future time point `r next_month` `r next_year`. 
+
+`r forecast_table`
+
+## Visualization of 3 Models' Predicted Values
+In addition to the table I decided to graph all values on a scatter plot to visually see how the values overlay against the observed and include the 3 point predictions from the table above:
+
+Actual observed values are in black as pch value 13 which is a circle with a x through it.
+Linear Regression Values are in orange dots
+Weighted Moving Average Values are in purple dots
+Ensemble Values are in cyan (considered the closest fit model to the actual data based on MSE)
+
+```{r scatterplot_for_funsies, echo=FALSE, message=FALSE, warning=FALSE, fig.width= 10, fig.height=8}
+# make shifted period for overlays
+water_usage$shifted_period <- as.Date(rep(NA, n))
+for(i in 1:n){
+  water_usage$shifted_period[i] <- water_usage[i,"date"] %m+% months(1)
+}
+#graph date parameters
+n <- nrow(water_usage)
+start.date <- water_usage[1, "date"] %m-% months(1)
+end.date <- water_usage[n, "date"] %m+% months(2)
+
+# make base scatterplot
+scat1 <- ggplot(water_usage, aes(date, daily_water_ts)) + geom_point(color = "black", shape = 13, size = 2) + labs(
+  title = "Line Graph of Water Useage over Time",
+  x = "Period by Month",
+  y = "Average Daily Water use in Thousands of Liters",
+  caption = "Average daily water consumption per time series period in monthly incrementations"
+) + scale_x_date(breaks = seq.Date(from = start.date, to = end.date, by = "6 months"), minor_breaks = seq.Date(from = start.date, to = end.date, by = "1 month"), date_labels = "%B-%Y")
+
+# data to overlay
+lm_data <- water_usage$lm_predicted
+wma_data <- water_usage$wma
+ensemble_data <- water_usage$ensemble_predicted
+
+
+scat1 + 
+  geom_point(aes(x = date, y = lm_data), color = "orange") +
+  geom_point(aes(x = shifted_period, y = wma_data), color = "purple") +
+  geom_point(aes(x = shifted_period, y = ensemble_data), color = "cyan") +
+  geom_point( data = data.frame( date = water_usage[n, "date"] %m+% months(1), lm_point_forecast = lm_forecast), aes(x = date, y = lm_point_forecast), color = "orange") +
+  scale_color_manual(values = c("Actual Observed Data" = "black", "Linear Regression" = "orange", "WMA" = "purple", "Ensemble" = "cyan"))
+```
+

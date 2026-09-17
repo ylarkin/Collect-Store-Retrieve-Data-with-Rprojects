@@ -1,0 +1,207 @@
+---
+title: "Explore Obesity Data"
+author: "Larkin, Yvonne"
+date: "Sp 2025, February 4th"
+output:
+  html_document:
+    df_print: paged
+subtitle: DA5020/Assignment 04.1
+---
+
+```{r Q2_loadDataURL, echo = FALSE, message = FALSE}
+df.full <- read.csv(file = "http://artificium.us/datasets/ObesityPredictionData-Modified.csv", header = TRUE, stringsAsFactors = FALSE)
+```
+
+```{r Q3_createNewDF, echo = FALSE, message = FALSE, warning = FALSE}
+suppressPackageStartupMessages(library(dplyr))
+df.clean <- df.full %>%
+  select(1:10, 16, 17)
+```
+
+```{r Q4_Q5_MissingValue, echo = FALSE, message = FALSE}
+male.rows <- which(df.clean$Gender == "Male")
+female.rows <- which(df.clean$Gender == "Female")
+
+#Q4
+male.trim <- mean(df.clean[male.rows, "Height"], trim = 0.05, na.rm = TRUE)
+female.trim <- mean(df.clean[female.rows, "Height"], trim = 0.05, na.rm = TRUE)
+
+df.clean <- df.clean %>%
+  mutate(Height = case_when(
+    Gender == "Male" & is.na(Height) ~ male.trim,
+    Gender == "Female" & is.na(Height) ~ female.trim,
+    TRUE ~ Height
+  ))
+
+#Q5
+male.median <- median(df.clean[male.rows, "Age"], na.rm = TRUE)
+female.median <- median(df.clean[female.rows, "Age"], na.rm = TRUE)
+df.clean <- df.clean %>%
+  mutate(Age = case_when(
+    Gender == "Male" & is.na(Age) ~ male.median,
+    Gender == "Female" & is.na(Age) ~ female.median,
+    TRUE ~ Age
+  ))
+```
+
+```{r Q6_removeOutliers, echo = FALSE, message = FALSE}
+male.rows <- which(df.clean$Gender == "Male")
+female.rows <- which(df.clean$Gender == "Female")
+# no NA values checked in console with line below
+# any(is.na(df.clean$Weight))
+#means
+male.avgWeight <- mean(df.clean[male.rows, "Weight"])
+female.avgWeight <- mean(df.clean[female.rows, "Weight"])
+#standard deviation
+male.sd <- sd(df.clean[male.rows, "Weight"])
+female.sd <- sd(df.clean[female.rows, "Weight"])
+#z-score
+male.zScore <- abs((df.clean[male.rows, "Weight"] - male.avgWeight) / male.sd)
+female.zScore <- abs((df.clean[female.rows, "Weight"] - female.avgWeight) / female.sd)
+#find outliers
+male.outliers <- which(male.zScore > 2.5)
+female.outliers <- which(female.zScore > 2.5)
+#dplyr
+df.clean <- df.clean %>%
+  filter(!row_number() %in% c(male.outliers, female.outliers))
+#APA citation to correctly use filter() : OpenAI. (2025i, February 4). Filter Z-score outliers. ChatGPT. https://chatgpt.com/share/67a25dbe-83a0-8006-81f9-49191f641814 
+```
+
+```{r Q7_BMIcolumn, echo = FALSE, message = FALSE}
+df.clean <- df.clean %>%
+  mutate(
+    BMI = (df.clean$Weight / (df.clean$Height^2))
+  )
+```
+
+```{r Q8_rng44376, echo = FALSE, message = FALSE}
+set.seed(44376)
+sample_size <- round(0.4 * nrow(df.full))
+df.partial <- df.full[sample(nrow(df.full), sample_size),]
+```
+In order to calculate the confidence intervals for *df.clean* and *df.partial*, we need to test for normality in distribution and can test variance for good measure. The Shapiro-Wilks Test for normality has the default (null) hypothesis that 'the data distribution is normal', therefore if the p-value is greater than 0.05 (standard alpha cutoff) we can conclude that the distribution likely follows the null hypothesis. However, as you can see below the p-value for both dataframe Shapiro-Wilks Tests are below 0.05 and therefore we reject the null hypothesis that the distributions are normal.
+
+```{r Q9_confidenceInterval, echo = FALSE, message = FALSE}
+clean_height <- mean(df.clean$Height, na.rm = TRUE)
+clean_sd <- sd(df.clean$Height, na.rm = TRUE)
+partial_height <- mean(df.partial$Height, na.rm = TRUE)
+partial_sd <- sd(df.partial$Height, na.rm = TRUE)
+# need tscore not zscore because not normally distributed
+full_mean <- mean(df.full$Height, na.rm = TRUE)
+clean.tScore <- (clean_height - full_mean) / (clean_sd / sqrt(nrow(df.clean)))
+partial.tScore <- (partial_height - full_mean) / (partial_sd / sqrt(nrow(df.partial)))
+clean.UpperCI <- clean_height + (clean.tScore * (clean_sd / (sqrt(nrow(df.clean)))))
+clean.LowerCI <- clean_height - (clean.tScore * (clean_sd / (sqrt(nrow(df.clean)))))
+partial.UpperCI <- partial_height + (partial.tScore * (partial_sd / (sqrt(nrow(df.partial)))))
+partial.LowerCI <- partial_height - (partial.tScore * (partial_sd / (sqrt(nrow(df.partial)))))
+
+# variance are basically equal
+clean.var <- var(df.clean$Height, na.rm = TRUE)
+partial.var <- var(df.partial$Height, na.rm = TRUE)
+# but the data are not normally distributed
+shapiro.test(df.clean$Height) # p < 0.05 reject H0
+shapiro.test(df.partial$Height) # p < 0.05 reject H0
+```
+
+Because the data sets do not follow a normal distribution, we cannot use the *z-score* and instead must use the *t-score* to find the confidence intervals(CI). Equations listed below: 
+
+$$\begin{align*}
+&t = \frac{\bar{x} - \mu}{\frac{s}{\sqrt{n}}} \
+&CI = {\mu\pm [(t score) \times\frac{\sigma}{\sqrt{n}}}]\end{align*}$$
+
+| t-score variables | CI variables |
+|-------------------|--------------|
+|${\bar{x}}$ = sample mean | $\mu$ = dataset mean |
+|$\mu$ = population mean, from df.full | t-score = t |
+|$s$ = sample standard deviation | $\sigma$ = dataset standard deviation |
+|$n$ = sample size  | *n* = dataset size |
+
+Below is a table of the two datasets' means and confidence intervals found. As you can see the CI is not very wide, meaning that there is a high level of confidence that the mean value is found in between the lower and upper limits. Similarly you can see that the means are almost identical for both datasets.However, you might notice that the *df.clean* CI is a ever so slightly narrower window than the *df.partial*. This is because outliers were removed from *df.clean*, which reduces variability in the mean value and difference from the median value (touched on in next paragraph).
+
+| Dataframe Variable | Calculated Value |
+|--------------------|------------------|
+|*df.clean* mean height | `r clean_height` |
+|*df.clean* confidence interval for mean height | (`r clean.LowerCI`, `r clean.UpperCI`) |
+|*df.partial* mean height | `r partial_height` |
+|*df.partial* confidence interval for mean height | (`r partial.LowerCI`, `r partial.UpperCI`)|
+
+In addition to calculating the CI with the t-score instead of the z-score, we also need to use a non-parametric statistics test to pseudo compare the means. The Wilcoxon Rank-Sum Test allows for data that is not normally distributed and of varying vector lengths to be compared. Below you can see the result of the Wilcoxon Rank-Sum test where the p-value is less than 0.05 (standard alpha cutoff value). Therefore we fail to reject the null hypothesis which states there is no significant difference between the two datasets' distributions. This can further be interpreted to say the median of both datasets are not significantly different from each other. We can not directly state anything about the means of the datasets as mean is affected by outliers and considered a parametric measure. Given we removed outliers from *df.clean* but the *df.partial* pulled from *df.full* there is a potential outliers could be incorporated into *df.partial* that could cause a difference in mean though the distribution and median are not significantly different. Leading us to believe there is likely not a significant difference in mean.
+
+```{r Q9_nonParametricTest, echo = FALSE, message = FALSE}
+# can't use t.test so use Wilcoxon Rank-Sum
+wilcox.test(df.clean$Height, df.partial$Height) # p > 0.05 fail to reject H0, means are the same
+```
+
+I have also visualized the data through histograms below to show the *df.clean* and *df.partial* distributions. At first glance they might look normally distributed, but when I overlay the normal distribution curve for their mean and standard deviation (in red and blue respectively) you can see that they do not match. There is barely a visible line bump for the normal curve above the x-axis, demonstrating a heavy concentration of values around the median.
+
+```{r Q9_histograms, echo = FALSE, message = FALSE}
+#histograms and curves
+hist(df.clean$Height, main = "Clean Dataframe Histogram", xlab = "Height", ylab = "Number of Patients")
+curve(dnorm(x, mean = clean_height, sd = clean_sd),col = 'red', add = TRUE)
+hist(df.partial$Height, main = "Partial Dataframe, a subset Histogram", xlab = "Height", ylab = "Number of Patients")
+curve(dnorm(x, mean = partial_height, sd = partial_sd), col = 'blue', add = TRUE)
+```
+
+```{r Q10_markdownCalc, echo = FALSE, message = FALSE, warning = FALSE}
+total_female <- length(which(df.clean$Gender == "Female"))
+total_male <- length(which(df.clean$Gender == "Male"))
+percent <- function(x, y) {
+  round(((x / nrow(y)) * 100), 1)
+}
+obesity.table <- as_tibble(df.clean)
+obesity.table <- obesity.table %>%
+  group_by(Gender) %>%
+  summarize(
+    `Type I` = length(which(Obesity == "Overweight_Level_I")),
+    `Type II` = length(which(Obesity == "Overweight_Level_II"))
+  )
+library(knitr)
+obesity_table <- kable(obesity.table, align = 'c', caption = "Number of Patients by Gender in each Obesity category")
+```
+We have investigated a total of `r nrow(df.clean)` patients of which `r percent(total_female, df.clean)` % are female and `r percent(total_male, df.clean)`% are male. The total number of patients with either Type I or Type II obesity are shown below, broken down by gender and obesity type:
+`r obesity_table`
+```{r Q11_correlation, echo = FALSE}
+statement <- function(x){
+  v <- case_when(
+  abs(round(x, 2)) <= 0.04 ~ "no",
+  abs(round(x, 2)) <= 0.35 ~ "weak",
+  abs(round(x, 2)) <= 0.75 ~ "moderate",
+  abs(round(x, 2)) < 0.95 ~ "strong",
+  abs(round(x, 2)) >= 0.95 ~ "exact",
+  TRUE ~ NA
+  ) 
+  if(x > 0){
+    y <- "positive correlation"
+    } else {
+      if(x < 0) {
+        y <- "negative correlation"
+        } else {
+          y <- "correlation"
+        }
+    }
+  z <- paste(v, " ", y)
+  return(z)
+  }
+
+
+df.cor <- cor.test(df.clean$Age, df.clean$BMI)
+corEst <- df.cor$estimate
+df.clean.cor <- statement(corEst)
+```
+We found a `r df.clean.cor` (R = `r df.cor$estimate`, p = `r df.cor$p.value`) between age and BMI. More specifically, the correlations, when separated by gender, are as follows:
+```{r Q11_separateGender, echo = FALSE, message = FALSE}
+fem.AB <- df.clean %>%
+  filter(df.clean$Gender == "Female")
+male.AB <- df.clean %>%
+  filter(df.clean$Gender == "Male")
+fem.cor <- cor.test(fem.AB$Age, fem.AB$BMI)
+male.cor <- cor.test(male.AB$Age, male.AB$BMI)
+fem.cor1 <- fem.cor$estimate
+male.cor1 <- male.cor$estimate
+fe.clean.cor <- statement(fem.cor1)
+male.clean.cor <- statement(male.cor1)
+
+```
+Females have a `r fe.clean.cor` (R = `r fem.cor$estimate`, p = `r fem.cor$p.value`) between age and BMI.
+
+Males have a `r male.clean.cor` (R = `r male.cor1`, p = `r male.cor$p.value`) between age and BMI.

@@ -1,0 +1,407 @@
+---
+title: "Build Classification Models"
+author: "Larkin, Yvonne"
+date: "Sp 2025, April 8th"
+output:
+  html_document:
+    df_print: paged
+subtitle: DA5020 / kNN 12.1
+---
+
+```{r load_libraries, message=FALSE, warning=FALSE}
+library(class)
+library(caret)
+library(dplyr)
+```
+
+## Q2: load and copy data to data frames : df.orig and df.work
+### Parkinsons Data
+#### df.orig
+```{r Q2_load_data, message=FALSE, warning=FALSE}
+#load data from url
+df.orig <- read.csv("https://s3.us-east-2.amazonaws.com/artificium.us/datasets/parkinsons-salted-03.409.csv")
+
+#inspect data frame
+str(df.orig)
+```
+Summary of Parkinson's data above, the target feature is 'Diagnosis' for the kNN prediction algorithm. The feature 'Gender' is a character column with categories that will need to be encoded before kNN algorithm can be used.
+
+#### df.work
+```{r Q2_copy_data, message=FALSE, warning=FALSE}
+#target column 8 "Diagnosis" 1 = has parkinsons, 0 = does not have parkinsons
+#copy data frame to new one
+df.work <- df.orig
+
+#view first few rows
+kableExtra::kable(df.work[1:5,])
+```
+
+
+## Q3: Inspect *Age, AlcoholConsumption, and CholesterolTriglycerides* for outliers with z-score greater than 3.0
+#### Identify Initial Outliers
+```{r Q3_1.3.6.outliers, message=FALSE, warning=FALSE}
+#outliers with z-score cutoff 3.0
+#age column 1
+age.mean <- mean(df.work[,1], na.rm=T)
+age.sd <- sd(df.work[,1],na.rm=T)
+age.outliers <- which(abs((age.mean - df.work[,1]) / age.sd) > 3.0)
+#print results
+if(length(age.outliers)>0){
+  cat("Found outliers in column '", names(df.work)[1], "': \n   --> ", df.work[age.outliers, 1], "\n\n")
+} else { cat("No outliers in column '", names(df.work)[1], "' \n\n")
+}
+
+#alcohol consumption column 3
+ac.mean <- mean(df.work[,3], na.rm=T)
+ac.sd <- sd(df.work[,3],na.rm=T)
+ac.outliers <- which(abs((ac.mean - df.work[,3]) / ac.sd) > 3.0)
+#print results
+if(length(ac.outliers)>0){
+  cat("Found outliers in column '", names(df.work)[3], "': \n   --> ", df.work[ac.outliers, 3], "\n\n")
+} else { cat("No outliers in column '", names(df.work)[3], "' \n\n")
+}
+
+#cholesterol triglycerides column 6
+ct.mean <- mean(df.work[,6], na.rm=T)
+ct.sd <- sd(df.work[,6],na.rm=T)
+ct.outliers <- which(abs((ct.mean - df.work[,6]) / ct.sd) > 3.0)
+#print results
+if(length(ct.outliers)>0){
+  cat("Found ", length(ct.outliers), " outlier(s) in column '", names(df.work)[6], "': \n   --> ", df.work[ct.outliers, 6], "\n\n")
+} else { cat("No outliers in column '", names(df.work)[6], "' \n\n")
+}
+```
+
+```{r format_outlier, message=FALSE, warning=FALSE}
+ct.out.value <- format(df.work[ct.outliers,6], digits = 10, scientific = FALSE)
+```
+#### Evaluate Outliers
+Evaluating the singular outlier returned for `r names(df.work)[6]`, it has relatively the same number of digits as the other values in the column but the decimal is in a different position. 
+
+|Outlier          | `r names(df.work)[6]` |
+|:---------------:|:---------------------:|
+|`r ct.out.value` |`r df.work[1,6]`       |
+|                 |`r df.work[2,6]`       |
+|                 |`r df.work[3,6]`       |
+|                 |`r df.work[4,6]`       |
+|                 | ...                   |
+
+The other values have generally have 5-7 digits after the decimal place but typically have 3 digits before the decimal place. Excluding the outlier identified above, the data **range** for the column `r names(df.work)[6]` is **[`r min(df.work[,6])` , `r max(df.work[-ct.outliers,6])`]**. Additionally the calculated values (which include the outlier and are therefore skewed) for **mean** and **sd** are **`r ct.mean`** and **`r ct.sd`** (respectively).
+
+#### Handle Outliers
+I believe the outlier found is the result of an input error. It has a similar number of digits as the majority of other values and if the decimal place is shifted to the left by two then the new value not only falls within the range defined above but is within 1 standard deviation of the mean (old value). Therefore, instead of replacing the outlier with a different calculate value such as mean or median, we will substitute the value with it's same digits and only shift the decimal left twice (i.e. multiply by \(10^{-2})\).
+
+|Original Outlier Value | Replacement Value for Outlier|
+|:---------------------:|:----------------------------:|
+|`r ct.out.value`       | `r df.work[ct.outliers,6]`   |
+|-----------------------|------------------------------|
+
+While there was only one outlier (`r ct.out.value`), it is significantly far from the initially calculated mean, where mean is already significantly impacted by outliers. Because of this it would be best to recalculate the mean, standard deviation, and outliers for column `r names(df.work)[6]`.
+
+#### Identify New Outliers after 'AlcoholConsumption''s Intial Outlier is replaced
+```{r Q3_deal_with_outliers, message=FALSE, warning=FALSE}
+#the single outlier replacement, as defined above
+df.work[ct.outliers,6] <- df.work[ct.outliers,6] * 10^(-2)
+
+#recalculate mean and sd for column 6 to overwrite previous variable value
+new.ct.mean <- mean(df.work[,6], na.rm=T)
+new.ct.sd <- sd(df.work[,6],na.rm=T)
+new.ct.outliers <- which(abs((new.ct.mean - df.work[,6]) / new.ct.sd) > 3.0)
+#print new outlier results  results
+if(length(ct.outliers)>0){
+  cat("Found ", length(new.ct.outliers), " outlier(s) in column '", names(df.work)[6], "' based on the new mean and sd : \n   --> ", df.work[new.ct.outliers, 6], "\n\n")
+} else { cat("No new outliers found in column '", names(df.work)[6], "' \n\n")
+}
+```
+#### Handle New Outliers
+Upon reevaluation, there were `r length(new.ct.outliers)` newly found outliers. They are shown above, and are based on the newly calculated *mean* and *sd* : *`r new.ct.mean`* and *`r new.ct.sd`*(respectively). This makes the upper cut off for outliers equal to *`r (new.ct.mean + (new.ct.sd*3))`*, which is reasonably close to the new outlier values and therefore they will be kept and included in the dataset going forward.
+
+
+## Q4: Identify and Impute Missing Values
+Identify any missing values and impute them using the 10% trimmed mean based on the corresponding *Gender*.
+
+### Identify Missing Values
+```{r Q4_id_missing_values}
+#find all missing values
+found <- FALSE
+
+#loop through all features numeric and non mumeric to see if there are any missing values
+for(i in 1:ncol(df.work)){
+  missingValues <- which(is.na(df.work[,i]) | df.work[,i] == "")
+  if(length(missingValues) > 0) {
+    cat("Column '", names(df.work)[i], "' has ", length(missingValues), " missing values. \n\n")
+    found <- TRUE
+  } else {
+    cat("Column '", names(df.work)[i], "' has no missing values. \n\n")
+  }
+}
+if(!found) {
+  cat("no missing values detected in dataset")
+}
+
+# find all distinct genders in dataset
+genders <- df.work %>%
+  distinct(Gender)
+gender_table <- kableExtra::kable(genders)
+```
+
+Above you can see there are only missing values in the 'AlcoholConsumption' feature, the other features do not have any missing values.
+There are `r nrow(genders)` distinct categories for the feature *Gender* in the dataset: `r gender_table` We will impute missing values in each feature grouped based on gender.
+
+### Impute Missing Values
+```{r Q4_imputeMissingValues, message=FALSE, warning=FALSE}
+#for markdown report
+ac.missing.text <- which(is.na(df.work[,'AlcoholConsumption']))
+ac.missingV.gender <- df.work[ac.missing.text, 'Gender']
+
+#after individually coding for Q3, decided to make a vector of numeric column values in order to loop through even though only 'AlcoholConsumption' has NA
+col.num <- c(1,3,6)
+#loop through to find missing values (again) and replace any missing values found
+for(i in 1:length(col.num)){
+  #rows of missing values (check both numeric and string NAs even though each column is numeric)
+  missingValues <- which(is.na(df.work[,col.num[i]]) | df.work[,col.num[i]] == "")
+  
+  #find 10% trimmed mean for each gender prior to imputation of given column
+  #that way means do not change
+  trim.male <- mean(df.work[which(df.work[,'Gender']=='Male'), col.num[i]], na.rm = TRUE, trim = 0.1)
+  trim.female <- mean(df.work[which(df.work[,'Gender']=='Female'), col.num[i]], na.rm = TRUE, trim = 0.1)
+  trim.transgender <- mean(df.work[which(df.work[,'Gender']=='Transgender'), col.num[i]], na.rm = TRUE, trim = 0.1)
+  trim.unknown <- mean(df.work[which(df.work[,'Gender']=='Unknown'), col.num[i]], na.rm = TRUE, trim = 0.1)
+  
+  cat("10% Trimmed Mean by Gender for Column '", names(df.work)[col.num[i]], "': \n\n 'Male'       = ", trim.male, "\n 'Female'     = ", trim.female, "\n 'Transgender'= ", trim.transgender, "\n 'Unknown'    = ", trim.unknown, "\n\n")
+  
+  #if there are any missing values, impute them with the 10% trimmed mean found above
+  if(length(missingValues) > 0){
+    for(m in 1:length(missingValues)){
+      if(df.work[missingValues[m], 'Gender'] == 'Male'){
+        df.work[missingValues[m],col.num[i]] <- trim.male
+        } else if (df.work[missingValues[m], 'Gender'] == 'Female'){
+          df.work[missingValues[m],col.num[i]] <- trim.female
+        } else if (df.work[missingValues[m], 'Gender'] == 'Transgender'){
+          df.work[missingValues[m],col.num[i]] <- trim.transgender
+        } else if (df.work[missingValues[m], 'Gender'] == 'Unknown'){
+          df.work[missingValues[m],col.num[i]] <- trim.unknown
+        } else {
+          cat("Row ", missingValues[m], "from column '", names(df.work)[col.num[i]],"' does not have any of the 4 'Gender' assignments: male, female, transgender, or unknown. \n\n")
+        }
+    }
+  }
+}
+```
+
+Any missing value will be imputed based on the 10% trimmed mean for the column of interest based on the 'Gender' category. Values are listed above. 
+
+For our specific situation, we only needed the values for the 'AlcoholConsumption' feature corresponding to the listed 'Gender' for the following **`r length(ac.missing.text)`** missing values in rows: **`r ac.missing.text`**. Their respective gender assignments are: **`r ac.missingV.gender`**, and the corresponding 10% mean trimmed value replaced their original missing value (NA).
+
+## Q5: Encode Categorical variable *Gender*
+### Frequency Encoding for Categorical Variables
+```{r Q5_encode_categorical, message=FALSE, warning=FALSE}
+#encode 'Gender' by frequency encoding
+#using dplyr to count instances for me instead of doing loop
+df.work <- df.work %>%
+  add_count(Gender, name = 'GenderCount')
+total <- nrow(df.work)
+#calculate each categories frequency in the data i.e (# 'Male')/(total # in 'Gender')
+df.work$GenderFrequency <- df.work[,'GenderCount']/total
+
+gen.freq.table <- df.work %>%
+  select(Gender, GenderCount, GenderFrequency) %>%
+  distinct() %>%
+  rename(
+    Count = GenderCount,
+    Frequency = GenderFrequency
+  )
+gen.freq.table <- kableExtra::kable(gen.freq.table)
+```
+In the table show below, you can see the corresponding frequency encoding value for each gender: `r gen.freq.table`
+
+### Replace category 'Gender' characters with Frequency Code
+```{r Q5_removeColumns, message=FALSE, warning=FALSE}
+#replace original 'Gender' category with it's frequency value like prompt says, and to not change feature order in df
+#remove the additional columns for simplicity
+df.work <- df.work %>%
+  mutate(Gender = GenderFrequency) %>%
+  select(-GenderFrequency, -GenderCount)
+```
+
+## Q6: Scale all numeric features using z-Score standardization
+### Inspect all Features
+Inspect all columns to see which are numeric.
+
+```{r Q6_checkNumericColumns, message=FALSE, warning=FALSE}
+#view summary table because do not want to scale binary columns
+str(df.work)
+
+#check that all columns are numeric
+if(all(sapply(df.work, is.numeric))){
+  cat("All data features are numeric. Proceed with scaling")
+} else {
+  not_num <- which(!sapply(df.work, is.numeric))
+  cat("Not all columns are numeric. Columns: ", not_num, "need to be encoded before scaling \n\n")
+}
+```
+While all columns are returned true for numeric, because 'numeric' and 'integer' are seen as numeric for the purpose of calculations. When we look at the data frame summary above, there are actually 4 columns that follow binary notation 0 (FALSE) and 1 (TRUE). Binary features do not need to be scaled as they are in the range [0,1] range [^1]. While leaving the binary features alone would result in easier interpretation of results at first glance, I am opting to scale the binary features for code simplicity. I will use a key with scale values that correspond to their binary values: 0 and 1.
+
+[^1]: Conversation with ChatGPT about scaling features: OpenAI. (2025af, April 8). Z-standardization for KNN. ChatGPT. https://chatgpt.com/share/67f5e0a5-6210-8006-998f-26da8dcbcd84
+
+### Scale all Features (including Binary)
+```{r Q6_Scale, warning=FALSE, message=FALSE}
+#z-score standardize numeric features (all columns) and save to new scaled data frame
+df.scaled <- as.data.frame(scale(df.work))
+```
+
+## Q7: Split data into Training and Validation sets
+### Split : 85% Training Set, 15% Validation Set
+Retain 85% of the data for training and 15% will be for Testing. Use the random number generator seed '88765' for reproducibility. The target feature is 'Diagnosis' and as such that is the criteria used in `createDataPartition` from `caret` package to give us the training data.
+
+```{r Q7_splitData, warning=FALSE, message=FALSE}
+#set seed for reproducability
+set.seed(88765)
+
+#randomly select 85% data for training set
+# select data based on the target feature
+trainIndex <- createDataPartition(df.scaled[, 'Diagnosis'], p = 0.85, list = FALSE)
+trainDataSet <- df.scaled[trainIndex,]
+#remainder of data is for the testing set
+testDataSet <- df.scaled[-trainIndex,]
+```
+
+## Q8: Calculate Accuracy for kNN model
+### kNN Prediction Algorithm for k = 7
+```{r Q8_trainModel, warning=FALSE, message=FALSE}
+#Training Data (x,y) extract features
+#remove target feature
+trainX <- trainDataSet[,-8]
+#predictor feature
+trainY <- trainDataSet$Diagnosis
+
+#Testing Data (x,y) extract features
+#remove target feature
+testX <- testDataSet[,-8]
+#predictor feature
+testY <- testDataSet$Diagnosis
+
+#q8 tells us to use k-value 7
+k_value = 7
+#perform kNN classification
+prediction7 <- knn(train = trainX, test = testX, cl = trainY, k = k_value)
+```
+
+### Calculate kNN Accuracy for k = 7
+```{r Q8_evaluateAccuracy, warning=FALSE, message=FALSE}
+#calculate accuracy
+accuracy7 <- sum(prediction7 == testY) / length(testY)
+perc_acc <- paste0(round((accuracy7*100),2), "%")
+```
+
+### Evaluate Q8 Results:
+Using a k value of 7 for our kNN prediction classification results in a **`r perc_acc`**. 
+
+This is better than randomly guessing, but not by much. But this is likely due to the binary nature of the target feature and a few other predictor features. Those binary features have either TRUE or FALSE as a 'Diagnosis' response without any *grey scale* (so to speak) in between. Therefore a patient either has Parkinson's disease or does not. An accuracy rate just above the probability of flipping a coin implies that based on the data features available, there aren't any strongly correlated factors to dictate a decision on whether or not the patient will have Parkinson's Disease.
+
+## Q9: Predict the Diagnosis using kNN model in Q10
+### Because this indicates using the model in 10, the evaluation summary will be after code sections for both Q9 and Q10.
+
+New Case : 74 year-old male patient with moderate alcohol consumption of 3.2 drinks per week on average, no family history or traumatic brain injury, a lab result of 387.7 for their triglycerides, and experiencing relatively frequent sleep disorders. Find all predictions for each respective k value. 
+
+#### kNN Prediction of New Case for k = 5:15 
+```{r Q9_predictDiagnosis, warning=FALSE, message=FALSE}
+#new data point as data frame
+# Male = 1291/2005 as indicated in table above
+new.case <- data.frame(Age = 74, Gender = (1291/total), AlcoholConsumption = 3.2, FamilyHistoryParkinsons = 0, TraumaticBrainInjury = 0, CholesterolTriglycerides = 387.7, SleepDisorders = 1)
+
+# combine new case to old data frame and re-scale
+new.scaled <- as.data.frame(scale(rbind(df.work[,1:7], new.case)))
+
+#predict the diagnosis with model from Q10 which has k-values 5:15
+k_val <- c(5:15)
+#initialize empty vector
+new.case.predictions <- numeric(11)
+#loop through predictions for each k value
+for(i in 1:length(k_val)){
+  predict.parkinsons <- knn(train = trainX, test = new.scaled, cl = trainY, k = k_val[i])
+  #APA: OpenAI. (2025af, April 8). Factor to numeric conversion. ChatGPT. https://chatgpt.com/share/67f60e6e-081c-8006-a1a7-bfc7858a638e 
+  #append last prediction to vector, it corresponds to new.case
+  new.case.predictions[i] <- as.numeric(as.character(last(predict.parkinsons)))
+}
+#use key in next block to evaluate prediction meaning
+```
+
+#### Binary Key
+```{r binaryKey, warning=FALSE, message=FALSE}
+#df set up for reference
+binary_scaled <- data.frame( Binary = c(0,1), Scaled = c(NA,NA), Meaning = c('FALSE', 'TRUE'))
+
+#find row value in pre-scaled df.work that have a 0 and 1 assignment
+row_zero <- which(df.work$Diagnosis == 0)[1]
+row_one <- which(df.work$Diagnosis == 1)[1]
+#use row index to look up scaled value for 0 and 1 in df.scaled
+binary_scaled$Scaled[1] <- df.scaled[row_zero, 'Diagnosis']
+binary_scaled$Scaled[2] <- df.scaled[row_one, 'Diagnosis']
+#table
+scaled_key <- kableExtra::kable(binary_scaled, align = 'c')
+```
+
+#### Combined Prediction Values with Binary Key
+```{r Q9_new.case.prediction, warning=FALSE, message=FALSE}
+#combine key from code block 'binaryKey' with output of prediction results in code block 'q9_predictDiagnosis' 
+q9_prediction_results <- data.frame(
+  Case.Predictions = new.case.predictions,
+  Diagnosis = ifelse(
+    new.case.predictions == binary_scaled[1,2], binary_scaled[1,1], binary_scaled[2,1]),
+  Parkinson = ifelse(
+    new.case.predictions == binary_scaled[1,2], binary_scaled[1,3], binary_scaled[2,3]))
+```
+
+## Q10: Evaluate Accuracy for k = 5:15
+#### Evaluate Accuracy
+```{r Q10_evaluateAccuracy, message=FALSE, warning=FALSE}
+# evaluate for k = 5:15
+k_values <- c(5:15)
+#initialize empty list
+k_accuracy <- numeric(11)
+#loop through k and append accuracy
+for(i in 1:length(k_values)){
+  predictions <- knn(train = trainX, test = testX, cl = trainY, k = i)
+  k_accuracy[i] <- (sum(predictions == testY) / length(testY))*100
+}
+```
+
+#### Combine Accuracy with prior Combined data frame
+```{r Q9_Q10_table, message=FALSE, warning=FALSE}
+q9_prediction_results_with_k <- cbind(q9_prediction_results, k_value = k_values, Accuracy = round(k_accuracy,2))
+q9_prediction_k_accuracy_table <- kableExtra::kable(q9_prediction_results_with_k, align = 'c', format = "html") %>%
+  kableExtra::kable_styling(bootstrap_options = "striped")
+```
+
+#### Optimal k for Summary comparison
+```{r optimal_k, warning=FALSE, message=FALSE}
+#better k-value
+better_k <- round(sqrt(nrow(trainX)),0)
+#model predictions
+better_predict <- knn(train = trainX, test = testX, cl = trainY, k = better_k)
+#accuracy for better_k
+better_accuracy <- (sum(predictions == testY) /length(testY))*100
+```
+## Q9 and Q10 Evaluation Summary:
+
+### Binary Scaled Value Lookup Table
+`r scaled_key`
+
+### Parkinson's Diagnosis Prediction for New Case
+Given a new case: 74 year-old male patient with moderate alcohol consumption of 3.2 drinks per week on average, no family history or traumatic brain injury, a lab result of 387.7 for their triglycerides, and experiencing relatively frequent sleep disorders, the kNN algorithm predicts a positive Diagnosis of Parkinson's:
+
+`r q9_prediction_k_accuracy_table`
+
+#### Plot Accuracy
+```{r Q10_plot, message=FALSE, warning=FALSE}
+#graph % accuracy against k value
+k_plot <- plot(x = q9_prediction_results_with_k[,'k_value'], y = q9_prediction_results_with_k[,'Accuracy'], xlab = "k value", ylab = "% accuracy", main = "kNN Prediction Algorithm Accuracy for different k-values")
+```
+
+### Plot Evaluation
+This plot shows that regardless of the *k* value, the accuracy rate will only be slightly better than random guessing. Again, this draws back to the binary nature of the data, the answer is either correct or incorrect, there is no in between. This again implies, the data does not have a strongly correlated feature to determine Parkinson's Disease Diagnosis.
+
+It has been found through empirical studies that a *k* equal to the square root of the number of observations in the training data set is generally best"[^2]: $$\text{Optimal k} = \sqrt{\text{training observations}} = \sqrt{`r nrow(trainX)`} = `r better_k`$$ Even with the "optimal" k value = **`r better_k`** the accuracy is only **`r round(better_accuracy,2)`%**. 
+
+[^2]: quote from lesson html page: APA: Schedlbauer, M. (2025f, April 7). 5: Train Model. 3.409 kNN for Classification: A Primer. http://artificium.us/lessons/03.ml/l-3-409-knn-primer/l-3-409.html#Overview_of_the_Algorithm ]

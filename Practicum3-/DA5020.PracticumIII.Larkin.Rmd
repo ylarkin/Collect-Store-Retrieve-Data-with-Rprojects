@@ -1,0 +1,999 @@
+---
+title: "Agency Analysis"
+subtitle: "Sales Analysis and Forecasts"
+author: "Larkin, Yvonne"
+date: "Sp 2025, April 15th"
+output: 
+  html_document:
+    theme: sandstone
+    highlight: tango
+    number_sections: true
+---
+```{r note_from_author_on_delayed_submission, echo=FALSE, warning=FALSE, message=FALSE}
+#a note from the author about the decision to submit my practicum III late instead of on time:
+#Hi Professor Schedlbauer,
+
+#The practicum instructions specified to use SQL instead of R whenever possible and the goal is always to dynamically code instead of hard code values especially in reports. 
+
+#Despite me having all of the practicum coded and the minimum text explanations for all sections (including technical details and summary) typed for submission within the hour leading up to the submission deadline on the 15th, I decided that I wanted improve both the code and explanations before submitting my practicum III. I realize I am probably taking it more to an extreme than what is expected for this practicum, but I figured it is my last one for the semester and I wanted to challenge myself more. 
+
+#I've already delayed my practicum submission by two days. During the past 2 days, I have made many dynamic adjustments throughout, improved sections, reformatted the practicum order, improved naming for code chunks and variables, and expanded the explanations for technical details and Summary. I keep wanting to add dynamic coding that subsequently cascades into future codes, so I have to make minor adjustments throughout, or I opt to use SQL instead of R, even though R would be much simpler. 
+
+# There are multiple areas throughout this practicum where I have opted to dynamically code instead of hard code even though it was significantly longer and more challenging. One such example is code chunks 'sql section2.1_SQL_query_agents_sales_tables )' in conjunction with 'r section2.1_rename_SQL_query_column_names'.  I am happy with my adjustment to make the sql query renamed dynamically, this was challenging but successful. It was also done on the 17th,  
+
+#Even though there are many more instances in my code that could be improved upon, I think I've delayed this long enough. I just hope the 2 day penalty is outweighed by my efforts to make this a more robust practicum. Thank you for taking the time to read this. I hope my practicum meets your expectations.
+
+#Cheers, Yvonne Larkin
+```
+
+```{r prep_loadPackages, echo=FALSE, warning=FALSE, message=FALSE}
+#load necessary libraries, did not use list of packages to check for installation , just assuming the packages are available to load on system
+#look for install : Class, Caret, RMySQL, RSQLite, TTR
+library(RMySQL)
+suppressPackageStartupMessages(library(XML)) # parse XML file
+suppressPackageStartupMessages(library(DBI)) # dbFunctions()
+suppressPackageStartupMessages(library(dplyr)) #manipulate data frames easier with pipes
+suppressPackageStartupMessages(library(kableExtra)) #format table
+suppressPackageStartupMessages(library(tidyr)) 
+suppressPackageStartupMessages(library(ggplot2)) #bargraph
+suppressPackageStartupMessages(library(lubridate)) #adding dates
+suppressPackageStartupMessages(library(forecast)) 
+suppressPackageStartupMessages(library(sqldf)) #query dataframes like databases
+```
+
+```{r prep_load_XML_Data, echo=FALSE, message=FALSE, warning=FALSE}
+#load data from URL, xmlParse only accepts http:// not https://
+xmlURL <- "http://s3.us-east-2.amazonaws.com/artificium.us/datasets/agencies.xml"
+
+#no DTD file available internal or external
+xmlDOM <- xmlParse(xmlURL, validate = FALSE)
+
+#load DOM root to usable object
+root <- xmlRoot(xmlDOM)
+```
+
+```{r prep_Parse_XML_file_to_dataframe, echo=FALSE, message=FALSE, warning=FALSE}
+#Parse XML information
+#number of child nodes = # of agencies
+n <- xmlSize(root)
+
+#initialize empty list
+agent_data <- list()
+
+#loop over each agency in real estate firm
+for(i in 1:n){
+  #use explicit attribute name instead of index for code clarity
+  agency_name <- xmlAttrs(root[[i]])['name']
+  agency_city <- xmlAttrs(root[[i]])['city']
+  
+  #number of child nodes = # of agents in given agency
+  p <- xmlSize(root[[i]])
+  # loop over each agent in agency node
+  for(j in 1:p){
+    #use explicit tag name instead of index for code clarity
+    agent_name <- xmlValue(root[[i]][[j]][['Name']])
+    agent_email <- xmlValue(root[[i]][[j]][['Email']])
+    agent_phone <- xmlValue(root[[i]][[j]][['Phone']])
+    agent_commission <- xmlValue(root[[i]][[j]][['Commission']])
+    agent_hireDate <- xmlValue(root[[i]][[j]][['HiringDate']])
+    
+    #append to named list for each agent, convert to data frame after loop
+    agent_entry <- list(agency = agency_name, 
+                         city = agency_city, 
+                         agent_name = agent_name,
+                         agent_email = agent_email,
+                         agent_phone = agent_phone,
+                         agent_commission = as.numeric(agent_commission),
+                         agent_hireDate = agent_hireDate)
+    
+    #append to named list for all agency nodes
+    agent_data <- c(agent_data, list(agent_entry))
+  }
+}
+
+#convert the list of agents into a data frame
+realEstate_df <- do.call(rbind, lapply(agent_data, as.data.frame))
+#remove row names
+rownames(realEstate_df) <- NULL
+```
+
+```{r prep_connect_SQL_database, echo=FALSE, warning=FALSE, message=FALSE}
+#follow Practicum III code/parameters to access Aiven-hosted MySQL database
+db_name_fh <- "defaultdb"
+db_user_fh <- "avnadmin"
+db_host_fh <- "mysql-2b10ba46-khoury-45a7.aivencloud.com"
+db_pwd_fh <- "AVNS_kAVuJeIdLvvrp80R2GV"
+db_port_fh <- 11214
+
+#direct link to Aiven database, not a copy so can't write table to it to avoid altering it for everyone/permissions. APA: OpenAI. (2025ah, April 13). Pragma in mysql. ChatGPT. https://chatgpt.com/share/67fc432f-3a04-8006-a8ed-d26cba6d4f06 
+#later saw teams instruction confirming this: to not alter Aiven database
+main_db <-  dbConnect(RMySQL::MySQL(), user = db_user_fh, password = db_pwd_fh,
+                 dbname = db_name_fh, host = db_host_fh, port = db_port_fh)
+```
+
+```{r prep_make_local_db_copy, echo=FALSE}
+#make local SQLite copy of the main database to manipulate, APA:OpenAI. (2025ah, April 13). Pragma in mysql. ChatGPT. https://chatgpt.com/share/67fc432f-3a04-8006-a8ed-d26cba6d4f06
+local_db <- dbConnect(RSQLite::SQLite(), "local_copy.db")
+```
+
+```{sql prep_drop_courses_table, connection=local_db, echo = FALSE}
+DROP TABLE IF EXISTS courses
+```
+
+```{sql prep_drop_sales_table, connection=local_db, echo = FALSE}
+DROP TABLE IF EXISTS sales
+```
+
+```{r prep_copy_main_db_tables_to_local_db, echo=FALSE, warning=FALSE, message=FALSE}
+#inspect what tables are in main_db
+all_tables <- dbListTables(main_db)
+
+#copy main_db tables to local_db
+for (tbl in all_tables) {
+  df <- dbReadTable(main_db, tbl)
+  dbWriteTable(local_db, tbl, df)
+}
+#disconnect from Aiven database because it is not needed anymore
+silent <- dbDisconnect(main_db)
+```
+
+```{sql prep_drop_agent_table, connection=local_db, echo = FALSE}
+DROP TABLE IF EXISTS agents
+```
+
+```{sql prep_create_agent_table, connection=local_db, echo = FALSE}
+CREATE TABLE agents (
+  agency TEXT NOT NULL,
+  city TEXT,
+  agent_name TEXT,
+  agent_email TEXT,
+  agent_phone TEXT,
+  agent_commission NUMERIC,
+  agent_hireDate TEXT,
+  PRIMARY KEY (agent_name)
+)
+```
+
+```{r prep_load_agent_data_to_local_db_from_XML_dataframe, echo=FALSE, message=FALSE, warning=FALSE}
+#add the values for the agents from realEstate_df to the local SQLite database
+dbWriteTable(local_db, "agents", realEstate_df, append = TRUE, row.names = FALSE)
+```
+
+## Introduction
+
+```{sql section1_number_transactions, connection=local_db, output.var = 'num_sales', echo= FALSE}
+SELECT COUNT(SalesID) AS 'Total Transactions' FROM sales
+```
+
+```{sql section1_lowerRange_sale_year, connection=local_db, output.var = 'min_year', echo= FALSE}
+SELECT MIN(yearSold) AS 'First Transaction Year' FROM sales
+```
+
+```{sql section1_upperRange_sale_year, connection=local_db, output.var = 'max_year', echo= FALSE}
+SELECT MAX(yearSold) AS 'Last Transaction Year' FROM sales
+```
+
+```{r section1_house_features, echo=FALSE, message=FALSE, warning=FALSE}
+#column headers names: both transaction details and house features
+col_names <- dbListFields(local_db, "sales")
+
+#names of relevant headers for markdown : house features only
+house_features <- paste(col_names[c(6:12)], sep = ", ")
+
+#number of features (fixed, evaluated manually)
+num_features <- length(col_names[c(6:12)])
+```
+
+This report analyzes the performance of sales agencies, their agents, and provides statistically derived forecasts for future sales. The data was extracted from the database hosted on Aiven as well as agent-related data provided by marketing in the form of an XML file. The database contains sales transactions for `r num_sales[1,1]` homes for the years `r min_year` through `r max_year`. For each sale we have records of `r num_features` distinct characteristics of the home <small>(`r house_features`)</small> , such as whether the home has a pool, what kind of air condition is featured in the home and the amount of land. 
+
+## Sales Analysis
+
+### Analysis of Sales by Agency
+
+```{sql section2_number_agents, connection=local_db, echo=FALSE, output.var = 'num_agents'}
+SELECT COUNT(DISTINCT agent_name) FROM agents
+```
+
+```{sql section2_number_agencies, connection=local_db, echo = FALSE, output.var = 'num_agencies'}
+SELECT COUNT(DISTINCT agency) FROM agents
+```
+
+```{sql section2.1_SQL_query_agents_sales_tables, connection=local_db, echo = FALSE, output.var = "section2.1_sales_by_agency_df"}
+-- APA code help, learn about WITH clause(used frequently going forward): OpenAI. (2025ai, April 13). SQL Group by Year. ChatGPT. https://chatgpt.com/share/67fc6e25-4a18-8006-9807-e7b329e61953
+WITH max_year AS(
+    SELECT MAX(yearSold) as max_year FROM sales
+),
+sales_sums AS (
+-- subquery : total sales value for each agency for the 3 most recent years of data
+-- hard coded column aliases because SQL query does not handle dynamic column alias naming, APA : Dynamic column aliases in SQL. ChatGPT. (n.d.). https://chatgpt.com/share/68016223-55bc-8006-9ce1-a591fa82c9f5 
+-- dynamic calculations
+  SELECT A.agency AS "Agency", 
+    SUM(CASE WHEN S.yearSold = (M.max_year - 2) THEN S.salesPrice  ELSE 0 END) AS "recent_year - 2",
+    SUM(CASE WHEN S.yearSold = (M.max_year - 1) THEN S.salesPrice  ELSE 0 END) AS "recent_year - 1",
+    SUM(CASE WHEN S.yearSold = M.max_year THEN S.salesPrice ELSE 0 END) AS "recent_year"
+  FROM agents A
+  JOIN sales S ON (S.salesAgent = A.agent_name)
+  JOIN max_year M
+  WHERE S.yearSold BETWEEN (M.max_year - 2) AND M.max_year
+  GROUP BY A.agency
+)
+SELECT "Agency", "recent_year - 2", "recent_year - 1", "recent_year", 
+      ("recent_year" + "recent_year - 1" + "recent_year - 2")/3 AS "Avg",
+      ("recent_year" + "recent_year - 1" + "recent_year - 2") AS "Total Sold"
+FROM sales_sums
+ORDER BY "Total Sold" ASC;
+```
+
+```{r section2.1_rename_SQL_query_column_names, echo=FALSE, message=FALSE, warning=FALSE}
+#recent year is max_year, assign SQL value to variable for use going forward
+max_year <- max_year[1]
+
+# rename SQL query columns so they can be dynamic that way it runs even with a change in data
+# learned how to use !! and := ; APA:OpenAI. (2025aq, April 17). Dynamic column renaming issue. ChatGPT. https://chatgpt.com/share/68016a59-2588-8006-be7c-0b545d60ef67 
+combined_df <- section2.1_sales_by_agency_df %>%
+  rename(!!as.character(max_year - 2) := `recent_year - 2`,
+         !!as.character(max_year - 1) := `recent_year - 1`,
+         !!as.character(max_year) := `recent_year`)
+```
+
+```{r section2.1_format_agency_sales_table, echo=FALSE, message=FALSE, warning=FALSE}
+# I did look into how to use a variable assignment inside mutate etc so that I could dynamically code this, it seems quite involved for this and would cascade to future code chunks as well so in the interest of time I will hard code the year values. I I would use "column_year <- names(combined_df)" to have variable column assignment for fixed index positions 2,3,4
+
+#add a totals row, seems easier in R than SQL
+totals_row <- combined_df %>%
+  summarize(
+    Agency = "TOTAL",
+    `2022` = sum(`2022`),
+    `2023` = sum(`2023`),
+    `2024` = sum(`2024`),
+    Avg = NA_integer_,
+    `Total Sold` = sum(`Total Sold`)
+  )
+
+#bind new total row to larger combined_df and format to match example report
+agency_sales_table <- bind_rows(combined_df, totals_row) %>%
+  mutate(
+    `2022` = format(round(`2022`/1000,0), big.mark = ",", nsmall = 0),
+    `2023` = format(round(`2023`/1000,0), big.mark = ",", nsmall = 0),
+    `2024` = format(round(`2024`/1000,0), big.mark = ",", nsmall = 0),
+    `Avg` = format(round(`Avg`/1000,0), big.mark = ",", nsmall = 0),
+    `Total Sold` = format(round(`Total Sold`/1000,0), big.mark = ",", nsmall = 0)
+  )
+# match example report for total average **
+agency_sales_table[which(agency_sales_table$Agency == 'TOTAL'),'Avg'] <- "**"
+#format table for report
+agency_sales_table2 <- kable(agency_sales_table, caption = "TABLE 1: Total of sale prices in thousands US$", align = c('l','c','c','c','c'))
+```
+
+```{sql section2.1_agency_with_recent_max_sales, connection=local_db, output.var = "agency_recent", echo = FALSE}
+WITH max_year AS(
+    SELECT MAX(yearSold) as max_year FROM sales
+)
+SELECT A.agency AS "Agency", 
+SUM(CASE WHEN S.yearSold = M.max_year THEN S.salesPrice ELSE 0 END) AS "2024"
+FROM agents A
+JOIN sales S ON (S.salesAgent = A.agent_name)
+JOIN max_year M
+GROUP BY A.agency
+ORDER BY "2024" DESC
+LIMIT 1;
+```
+
+```{sql section2.1_agency_with_overall_max_sales, connection=local_db, output.var = "agency_overall", echo = FALSE}
+SELECT A.agency AS "Agency", 
+SUM(S.salesPrice) AS "Overall Sold"
+FROM agents A
+JOIN sales S ON (S.salesAgent = A.agent_name)
+GROUP BY A.agency
+ORDER BY "Overall Sold" DESC
+LIMIT 1;
+```
+
+```{r section2.1_statement_after_table, echo=FALSE, warning=FALSE, message=FALSE}
+print_statement_sales_agency <- if(agency_recent[1,'Agency'] == agency_overall[1,'Agency']){
+  paste0("Of the ",num_agencies[1,1]," agencies, ", agency_overall[1,'Agency'], " has the highest overall sales as well as the highest sales for the most recent year.")
+}else if(agency_recent[1,'Agency'] != agency_overall[1,'Agency']){
+  paste0(agency_recent[1,'Agency'], " had the most sales for the most recent year, while ", agency_overall[1,'Agency'], " has the most overall sales.")
+}
+```
+
+We employ `r num_agents` agents across `r num_agencies` agencies. The list of agencies in their aggregate sales for the most recent three years (`r (max_year[1,1]-2)` to `r max_year[1,1]`) are shown in the table below, order by "Total Sold" in ascending fashion.
+
+`r agency_sales_table2`
+
+`r print_statement_sales_agency`
+
+### Analysis of Sales by Agent
+
+```{sql section2.2_max_sales_by_agent, connection=local_db, output.var = "top_agent", echo = FALSE}
+SELECT A.agency AS "Agency", A.city AS "city",
+S.salesAgent AS "Agent", A.agent_commission AS "Commission_perc",
+SUM(S.salesPrice) AS "Overall Sold",
+COUNT(salesID) AS "Units Sold",
+-- calculate monetary value of commission 
+SUM(S.salesPrice * A.agent_commission/100) AS "Earned_Commission"
+FROM agents A
+JOIN sales S ON (S.salesAgent = A.agent_name)
+GROUP BY salesAgent
+ORDER BY "Overall Sold" DESC
+```
+
+```{sql section2.2_recent_commission, connection=local_db, output.var = "commiss_2024", echo=FALSE}
+WITH max_year AS(
+    SELECT MAX(yearSold) as max_year FROM sales
+)
+-- agency commission (sum commission for all agents in that agency) for a specific year
+SELECT A.agency AS "Agency", 
+SUM(CASE WHEN S.yearSold = (M.max_year-1) THEN (S.salesPrice*A.agent_commission/100) ELSE 0 END) AS "commiss_2023",
+SUM(CASE WHEN S.yearSold = M.max_year THEN (S.salesPrice*A.agent_commission/100) ELSE 0 END) AS "commiss_2024"
+FROM agents A
+JOIN sales S ON (S.salesAgent = A.agent_name)
+JOIN max_year M
+GROUP BY A.agency
+ORDER BY "commiss_2024" DESC;
+```
+
+```{r section2.2_markdown_statement_variables, echo=FALSE, message=FALSE, warning=FALSE}
+#save specific queried values to variables for use in markdown report
+
+#agent with max monetary sales and corresponding sales value
+max_sale_agent <- top_agent[which.max(top_agent[["Overall Sold"]]),'Agent']
+max_sale <- paste0("$", format(top_agent[which.max(top_agent[["Overall Sold"]]),'Overall Sold'], big.mark = ","))
+
+#agent with max unit sales and corresponding number of units
+max_unit_agent <- top_agent[which.max(top_agent[["Units Sold"]]), 'Agent']
+max_units <- top_agent[which.max(top_agent[["Units Sold"]]), 'Units Sold']
+
+#top commission earned by agent with corresponding agency information
+max_commiss_agent <- top_agent[which.max(top_agent[["Earned_Commission"]]), 'Agent']
+max_commiss_agency <- top_agent[which.max(top_agent[["Earned_Commission"]]), 'Agency']
+max_commiss_city <- top_agent[which.max(top_agent[["Earned_Commission"]]), 'city']
+
+#total commission across all agencies by year
+total_commiss2024 <- round(sum(commiss_2024[,'commiss_2024']),0)
+total_commiss2023 <- round(sum(commiss_2024[,'commiss_2023']),0)
+
+#format monetary values
+format_commiss2024 <- paste0("$", format(total_commiss2024, big.mark=","))
+format_commiss2023 <- paste0("$", format(total_commiss2023, big.mark=","))
+avg_commiss2024 <- round((total_commiss2024/num_agents[1,1]),0)
+format_avgcommiss <- paste0("$", format(avg_commiss2024, big.mark=","))
+
+#print statement for markdown, compare top agents. If same agent a new combined statement
+leaderboard_agent_statement <- if(max_sale_agent == max_unit_agent){
+  paste0(max_sale_agent, " is currently first on the leaderboard for both having the most sales revenue of ", max_sale, " (the total of the sales prices) and having the most sales by unit (", max_units,").")
+} else if(max_sale_agent != max_unit_agent){
+  paste0(max_sale_agent, " is currently first on the leaderboard for having the most sales revenue of ", max_sale, " (the total of the sales prices), while ", max_unit_agent, " has the most sales by unit (", max_units,").")
+}
+
+#compare change in commission across years, statement changes depending on increase or decrease
+revenue_change_statement <- if(total_commiss2024 > total_commiss2023){
+  change <- "increase"
+  perc_change <- ((total_commiss2024 - total_commiss2023)/total_commiss2023) * 100
+  perc_change <- round(perc_change,0)
+  paste0("an ", change, " of ", perc_change, "%")
+}else if (total_commiss2024 < total_commiss2023){
+  change <- "decrease"
+  perc_change <- ((total_commiss2024 - total_commiss2023)/total_commiss2023) * 100
+  perc_change <- round(perc_change,0)
+  paste0("a ", change, " of ", perc_change, "%")
+}
+```
+
+```{sql section2.2_sales_by_agent, connection=local_db, output.var = "agent_sales_table", echo=FALSE}
+WITH max_year AS(
+    SELECT MAX(yearSold) as max_year FROM sales
+)
+-- agent's total sales in a given year for the 2 most recent years with corresponding average and totals across both years
+SELECT A.agent_name AS "Agent", 
+  SUM(CASE WHEN S.yearSold = (M.max_year-1) THEN (S.salesPrice) ELSE 0 END) AS "commiss_2023",
+  SUM(CASE WHEN S.yearSold = M.max_year THEN (S.salesPrice) ELSE 0 END) AS "commiss_2024",
+  (SUM(CASE WHEN S.yearSold = (M.max_year-1) THEN (S.salesPrice) ELSE 0 END) +
+  SUM(CASE WHEN S.yearSold = M.max_year THEN (S.salesPrice) ELSE 0 END))/2 AS "Avg",
+  (SUM(CASE WHEN S.yearSold = (M.max_year-1) THEN (S.salesPrice) ELSE 0 END) +
+  SUM(CASE WHEN S.yearSold = M.max_year THEN (S.salesPrice) ELSE 0 END)) AS "Total Sold"
+FROM agents A
+JOIN sales S ON (S.salesAgent = A.agent_name)
+JOIN max_year M
+GROUP BY A.agent_name
+ORDER BY "Total SOld" DESC
+```
+
+```{r section2.2_format_agent_sales_table, echo=FALSE, message=FALSE, warning=FALSE}
+#format agent sales table from SQL query in previous code block to match example report
+agent_sales_table2 <- agent_sales_table %>%
+  mutate(
+    format_2023 = format(round(commiss_2023/1000,0), big.mark=","),
+    format_2024 = format(round(commiss_2024/1000,0), big.mark=","),
+    format_Avg = format(round(Avg/1000,0), big.mark=","),
+    format_Total_Sold = format(round(`Total Sold`/1000,0), big.mark=",")
+  ) %>%
+  select(
+    Agent = Agent,
+    `2023` = format_2023,
+    `2024` = format_2024,
+    Avg = format_Avg,
+    `Total Sold` = format_Total_Sold
+  )
+agent_sales_table2 <- kable(agent_sales_table2, caption = "Table 2: Sales by Agent(in Thousands US$).", align = c('l','c','c','c','c'))
+```
+
+We have `r num_agents` agents selling homes for years from `r min_year` to `r max_year`. `r leaderboard_agent_statement` Based on commissions earned, `r max_commiss_agent` of `r max_commiss_agency` in `r max_commiss_city` has earned the most commission since they joined us. For the most recent year, a total of `r format_commiss2024` was earned in commission by our sales agents which represents `r revenue_change_statement` over the prior year's total of `r format_commiss2023`. The average sales commission in the most recent year was `r format_avgcommiss`.
+
+The table below breaks down sales by sales agent for the most recent years, ordered by sales total.
+
+We have `r num_agents` agents selling homes for years from `r min_year` to `r max_year`. `r leaderboard_agent_statement` Based on commissions earned, `r max_commiss_agent` of `r max_commiss_agency` in `r max_commiss_city` has earned the most commission since they joined us. For the most recent year, a total of `r format_commiss2024` was earned in commission by our sales agents which represents `r revenue_change_statement` over the prior year's total of `r format_commiss2023`. The average sales commission in the most recent year was `r format_avgcommiss`.
+
+The table below breaks down sales by sales agent for the most recent years, ordered by sales total.
+
+`r agent_sales_table2`
+
+## Forecasting
+
+There is an increasing need for more accurate forecasts of revenue per agency as well as overall across agencies. The bar graph below shows the trend over the total monthly sales for the past year[^a]. We are showing an interpolated regression line and linear regression line.
+
+[^a]: Based on further [Microsoft Teams instructions](https://teams.microsoft.com/l/message/19:f9a17020039a47cf815adf9c823b8cb2@thread.tacv2/1744373699113?tenantId=a8eec281-aaa3-4dae-ac9b-9a398b9215e7&groupId=bfa0739d-a543-442e-91ed-9fea217c96f1&parentMessageId=1744373178837&teamName=DA5020%20Sp25%20(Schedlbauer)&channelName=13%20-%20Practicum%20III&createdTime=1744373699113) for the forecasting section, I decided the make the graph over one year and compute the forecat and evaluation metric over two years.
+
+```{sql section3_bargraph_sales_by_month_recent_2_years, connection=local_db, echo = FALSE, output.var = "bargraph_info"}
+-- information to create bar graph for section 2.2
+-- APA citation: OpenAI. (2025aj, April 15). Summing sales from multiple years. ChatGPT. https://chatgpt.com/share/67fea9ed-96d8-8006-bc0d-fde8b0380014
+WITH max_year AS(
+    SELECT MAX(yearSold) as max_year FROM sales
+)
+-- total sales for each month across all agencies for the two most recent years
+SELECT 
+-- 2023 
+  SUM(CASE WHEN S.monthSold = 1 AND S.yearSold = (M.max_year - 1) THEN (S.salesPrice) ELSE 0 END) AS "Jan 2023",
+  SUM(CASE WHEN S.monthSold = 2 AND S.yearSold = (M.max_year - 1) THEN (S.salesPrice) ELSE 0 END) AS "Feb 2023",
+  SUM(CASE WHEN S.monthSold = 3 AND S.yearSold = (M.max_year - 1) THEN (S.salesPrice) ELSE 0 END) AS "Mar 2023",
+  SUM(CASE WHEN S.monthSold = 4 AND S.yearSold = (M.max_year - 1) THEN (S.salesPrice) ELSE 0 END) AS "Apr 2023",
+  SUM(CASE WHEN S.monthSold = 5 AND S.yearSold = (M.max_year - 1) THEN (S.salesPrice) ELSE 0 END) AS "May 2023",
+  SUM(CASE WHEN S.monthSold = 6 AND S.yearSold = (M.max_year - 1) THEN (S.salesPrice) ELSE 0 END) AS "Jun 2023",
+  SUM(CASE WHEN S.monthSold = 7 AND S.yearSold = (M.max_year - 1) THEN (S.salesPrice) ELSE 0 END) AS "Jul 2023",
+  SUM(CASE WHEN S.monthSold = 8 AND S.yearSold = (M.max_year - 1) THEN (S.salesPrice) ELSE 0 END) AS "Aug 2023",
+  SUM(CASE WHEN S.monthSold = 9 AND S.yearSold = (M.max_year - 1) THEN (S.salesPrice) ELSE 0 END) AS "Sep 2023",
+  SUM(CASE WHEN S.monthSold = 10 AND S.yearSold = (M.max_year - 1) THEN (S.salesPrice) ELSE 0 END) AS "Oct 2023",
+  SUM(CASE WHEN S.monthSold = 11 AND S.yearSold = (M.max_year - 1) THEN (S.salesPrice) ELSE 0 END) AS "Nov 2023",
+  SUM(CASE WHEN S.monthSold = 12 AND S.yearSold = (M.max_year - 1) THEN (S.salesPrice) ELSE 0 END) AS "Dec 2023",
+-- 2024
+  SUM(CASE WHEN S.monthSold = 1 AND S.yearSold = M.max_year THEN (S.salesPrice) ELSE 0 END) AS "Jan 2024",
+  SUM(CASE WHEN S.monthSold = 2 AND S.yearSold = M.max_year THEN (S.salesPrice) ELSE 0 END) AS "Feb 2024",
+  SUM(CASE WHEN S.monthSold = 3 AND S.yearSold = M.max_year THEN (S.salesPrice) ELSE 0 END) AS "Mar 2024",
+  SUM(CASE WHEN S.monthSold = 4 AND S.yearSold = M.max_year THEN (S.salesPrice) ELSE 0 END) AS "Apr 2024",
+  SUM(CASE WHEN S.monthSold = 5 AND S.yearSold = M.max_year THEN (S.salesPrice) ELSE 0 END) AS "May 2024",
+  SUM(CASE WHEN S.monthSold = 6 AND S.yearSold = M.max_year THEN (S.salesPrice) ELSE 0 END) AS "Jun 2024",
+  SUM(CASE WHEN S.monthSold = 7 AND S.yearSold = M.max_year THEN (S.salesPrice) ELSE 0 END) AS "Jul 2024",
+  SUM(CASE WHEN S.monthSold = 8 AND S.yearSold = M.max_year THEN (S.salesPrice) ELSE 0 END) AS "Aug 2024",
+  SUM(CASE WHEN S.monthSold = 9 AND S.yearSold = M.max_year THEN (S.salesPrice) ELSE 0 END) AS "Sep 2024",
+  SUM(CASE WHEN S.monthSold = 10 AND S.yearSold = M.max_year THEN (S.salesPrice) ELSE 0 END) AS "Oct 2024",
+  SUM(CASE WHEN S.monthSold = 11 AND S.yearSold = M.max_year THEN (S.salesPrice) ELSE 0 END) AS "Nov 2024",
+  SUM(CASE WHEN S.monthSold = 12 AND S.yearSold = M.max_year THEN (S.salesPrice) ELSE 0 END) AS "Dec 2024"
+FROM sales S
+JOIN max_year M
+```
+
+```{r section3_format_SQL_query_bargraph_information, echo=FALSE, message=FALSE, warning=FALSE}
+#format previous SQL query for use in bar graph
+#but need linear regression information from section 4 to make
+bargraph_info_long <- bargraph_info %>%
+  #convert sales data frame from SQL query into long data format for use in ggplot2
+  #APA citation : OpenAI. (2025aj, April 15). Summing sales from multiple years. ChatGPT. https://chatgpt.com/share/67fea9ed-96d8-8006-bc0d-fde8b0380014
+  pivot_longer(cols = everything(),
+               names_to = c("Month", "Year"),
+               values_to = "Sales",
+               names_sep = " ") %>%
+  #add a numeric column for month to use for loess() line because it needs continuous variable
+  mutate(
+    Month = factor(Month, levels = month.abb),
+    Month_num = as.numeric(Month),
+    Date = as.Date(paste(Year, Month_num, "01", sep = "-"), format = "%Y-%m-%d"))
+
+#filter for most recent year only
+#divide by 1000 for bargraph display
+bargraph_info_long_filtered <- bargraph_info_long %>%
+  mutate(Sales = Sales/1000) %>%
+  filter(Year == max_year[1,1])
+```
+
+```{r section3_bargraph, echo=FALSE, warning=FALSE, message=FALSE}
+#use ggplot2 to make bar graph, APA: OpenAI. (2025ao, April 15). Summing sales from multiple years. ChatGPT. https://chatgpt.com/share/67fea9ed-96d8-8006-bc0d-fde8b0380014 
+ggplot(bargraph_info_long_filtered, aes(x = Date, y = Sales)) + 
+  geom_col(fill = "grey") + 
+  # LOESS to match example report and the clarification video
+  geom_smooth(method = "loess", se = FALSE, color = "black") +  
+  # Linear regression according to practicum instructions and rubric
+  geom_smooth(method = "lm", se = FALSE, color = "blue", linetype = "dashed", size = 1.1) +  
+  annotate("text", x = min(bargraph_info_long_filtered$Date), y = 1900, 
+           label = "LOESS Trend", hjust = 0, vjust = 1.2, color = "black", fontface = "italic") +
+  annotate("text", x = min(bargraph_info_long_filtered$Date), y = 1800, 
+           label = "Simple Linear Regression Fit", hjust = 0, vjust = 1.2, color = "blue", fontface = "italic") +
+  labs(title = paste0("Total Monthly Sales Trend for ", max_year[1,1]), 
+       x = "", y = "Sales in Thousands US$") + 
+  scale_y_continuous(labels = scales::comma, breaks = seq(0, 2000, by = 1000),
+                     minor_breaks = seq(0, 3000, by = 250), limits = c(0,2000)) +
+  scale_x_date(date_labels = "%b", date_breaks = "1 month") +
+  theme_minimal() +
+  theme(plot.title = element_text(color = "lightgrey", face = "bold", size = 14),
+        axis.title.y = element_text(color = "lightgrey"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+#add multiple linear regression later
+```
+
+```{r section3_wma_forecast_calc, echo=FALSE, message=FALSE, warning=FALSE}
+#four month weighted moving average
+# use previous dataframe of the SQL query converted to long format, but only need Data and Sales
+wma_4months <- bargraph_info_long %>%
+  select(Date, Sales)
+
+#weights: most recent month 0.7 and equal weight for the 3 months prior to that
+weights <- c(0.1, 0.1, 0.1, 0.7)
+
+#WMA from TTR package, not using SQL because it is a query language so would only be able to calculate from available data and would need to calculate in R anyway for 2nd forecast
+#forecast next month
+sale_forecast <- TTR::WMA(wma_4months$Sales, n = length(weights), wts = weights)
+#append first forecast to long data for second forecast
+#length of data frame
+n_fore <- nrow(wma_4months) 
+#update date of forecast to immediate next month
+wma_4months_long <- rbind(wma_4months, data.frame(Date = (wma_4months$Date[n_fore] %m+% months(1)), Sales = last(sale_forecast)))
+
+#forecast 2nd following month
+sale_forecast2 <- TTR::WMA(wma_4months_long$Sales, n = length(weights), wts = weights)
+#append forecast2 as immediate next month following forecast1, data frame length is +1 from forecast1
+wma_4months_long <- rbind(wma_4months_long, data.frame(Date = (wma_4months_long$Date[n_fore+1] %m+% months(1)), Sales =(last(sale_forecast2))))
+
+#format both forecasts for markdown
+#value is direct because bargraph_info_long did not have altered the salesPrice values
+forecast_1 <- paste0("$", format(round(last(sale_forecast),0), big.mark = ","))
+forecast_2 <- paste0("$", format(round(last(sale_forecast2),0), big.mark = ","))
+```
+
+```{sql section4_inspect_dataset_for_missing_values, connection=local_db, echo = FALSE, output.var = "silence_search"}
+-- inspected query results manually, APA: OpenAI. (2025ar, April 17). Search null values SQL. ChatGPT. https://chatgpt.com/share/6801a4a2-b414-8006-9777-9acb78271b49 
+-- only 2 missing values in dataset found for feature 'hasAC', addressed in later kNN code chunks
+-- did not code for hypothetical NAs in other fields, however I would :
+          -- use the trimmed.mean for landSizeSqMtrs
+          -- salesPrice is the target variable so just remove data row and predict based on linear regression later
+          -- all others I would compute the mode: use dplyr to count all values in columns
+SELECT *
+FROM sales
+WHERE landSizeSqMtrs IS NULL OR landSizeSqMtrs = ''
+    OR hasUFFI IS NULL OR hasUFFI = ''
+    OR Gt45YearsOld IS NULL OR Gt45YearsOld = ''
+    OR finishedBasement IS NULL OR finishedBasement = ''
+    OR parkingSpots IS NULL OR parkingSpots = ''
+    OR hasAC IS NULL OR hasAC = ''
+    OR hasPool IS NULL OR hasPool = ''
+```
+
+```{sql section4_encode_and_find_outliers, connection=local_db, echo=FALSE, output.var = "label_encode"}
+-- interactively used DISTINCT manually to find all category values for a given column instead of trying to be dynamic
+WITH mean_land AS(
+    SELECT AVG(landSizeSqMtrs) AS avg_land FROM sales
+),
+-- Wanted to calculate standard deviation in SQL because practicum said to do as much calculation in SQL as possible and only with packages from class
+-- no STDEV in base, APA: OpenAI. (2025al, April 15). SQLite STDDEV function. ChatGPT. https://chatgpt.com/share/67fefe53-9b5c-8006-8e44-f485639fe90e
+sd_land AS (
+    SELECT ( 
+        SUM((landSizeSqMtrs - M.avg_land) * (landSizeSqMtrs - M.avg_land)) / COUNT(*) ) AS stdev_land
+    FROM sales
+    JOIN mean_land M
+)
+-- select target variable and all house features starting with feature not encoded then pre-encoded binary features
+SELECT S.salesPrice, S.landSizeSqMtrs, S.hasUFFI, S.parkingSpots, S.hasPool, 
+-- hasAC rank encoding (specified in practicum section 5) 
+-- initially did label encoding hence output.var name throughout:APA:OpenAI. (2025ak, April 15). SQL label encoding methods. ChatGPT. https://chatgpt.com/share/67fef063-5e50-8006-8198-28e7eda358ce
+CASE 
+  WHEN S.hasAC = 'none' THEN 0
+  WHEN S.hasAC = 'window' THEN 1
+  wHEN S.hasAC = 'split' THEN 3
+  WHEN S.hasAC = 'central' THEN 7
+ELSE -1
+END AS hasAC,
+-- age > 45 encoding: binary
+CASE
+  WHEN S.Gt45YearsOld = 'No' THEN 0
+  WHEN S.Gt45YearsOld = 'Yes' THEN 1
+ELSE -1
+END AS Gt45YearsOld,
+-- basement presence/fully finished encoding: binary
+CASE
+  WHEN S.finishedBasement = 'N' THEN 0
+  WHEN S.finishedBasement = 'Y' THEN 1
+ELSE -1
+END AS finishedBasement,
+-- check for outliers in landSizeSqMtrs with standard cutoff of 3.0 sd from mean
+-- add column to identify outliers later
+-- not inspecting other features for outliers because they are set category values
+CASE 
+  WHEN ABS((S.landSizeSqMtrs - M.avg_land) / D.stdev_land) > 3.0 THEN "Yes"
+ELSE "No"
+END AS land_Outlier
+
+FROM sales S
+JOIN mean_land M
+JOIN sd_land D;
+```
+
+```{r section4_handle_outliers, echo = FALSE, message=FALSE, warning=FALSE}
+#no outliers found but included code to be dynamic, show how I would approach them (though manual inspection should also happen to deal with special cases)
+
+#store which rows have outliers
+outliers <- which(label_encode$land_Outlier == "Yes")
+
+#remove all outliers from data frame: 
+#do not want to assume it is an entry error, more likely a genuinely different plot size that should not be used to calculate general regression line
+if(length(outliers) > 0){
+  # remove entire row for an outlier
+  label_encode <- label_encode %>%
+    filter(-outliers)
+}
+
+#remove 'land_Outlier' column from data frame: no longer needed and leaves data frame with all numeric features
+label_encode <- label_encode %>%
+  select(-land_Outlier)
+```
+
+```{r section4&5_build_hasAC_kNN, echo=FALSE, message=FALSE, warning=FALSE}
+#target feature is 'hasAC'for kNN Classification algorithm
+#scale all features for kNN because kNN is a distance-based algorithm
+#this is unlike my multiple linear regression model approach (explained later)
+
+#define min-max normalization function (z-score standardization uses scale())
+#APA: Schedlbauer, M. (2025g, April 7). Min-Max Normalization. 3.409 kNN for Classification: A Primer. http://artificium.us/lessons/03.ml/l-3-409-knn-primer/l-3-409.html#Min-Max_Normalization
+min_max_normalize <- function(x) {
+  return((x - min(x)) / (max(x) - min(x)))
+}
+
+#un-scaled data: remove hasUFFI, not specified for use in model classification
+kNN_data <- label_encode %>%
+  select(-hasUFFI)
+
+#un-scaled data: remove missing values (encoded -1)
+#performed separately to preserve missing data in kNN_data
+kNN_data2 <- kNN_data %>%
+  filter(hasAC != -1)
+
+#Shapiro Wilks test for normality: p-value decides scaling method
+land_shapiro <- shapiro.test(label_encode$landSizeSqMtrs)
+#scale data: z-score standaradization vs. min-max_normalization
+if(land_shapiro$p.value > 0.05){
+  #normal distribution; fail to reject null hypothesis
+  kNN_scaled <- as.data.frame(scale(kNN_data2))
+} else if (land_shapiro$p.value < 0.05){
+  #not normal distribution; reject null hypothesis
+  kNN_scaled <- as.data.frame(lapply(kNN_data2, min_max_normalize))
+}
+
+#split data randomly (practicum III specified seed number)
+set.seed(47762) 
+#smaller data set so decided on 85/15 split for train data/test data
+train_index <-caret::createDataPartition(kNN_scaled$hasAC, p =0.85, list = FALSE)
+kNN_trainData <- kNN_scaled[train_index,]
+kNN_testData <- kNN_scaled[-train_index,]
+
+#assign (X, Y) for kNN model training; target feature 'hasAC'
+#X is all data without the target , Y is only target
+trainX <- kNN_trainData %>% 
+  select(-hasAC)
+trainY <- kNN_trainData$hasAC
+
+testX <- kNN_testData %>%
+  select(-hasAC)
+testY <- kNN_testData$hasAC
+
+#best k should = sqrt of the # of records (i.e nrow) of training data
+k_value <- round(sqrt(nrow(kNN_trainData)),0)
+
+#make predictions for test data using kNN classification algorithm
+kNN_predictions <- class::knn(train = trainX, test = testX, cl = trainY, k = k_value)
+#evaluate model performance, 77% accuracy
+kNN_accuracy <- sum(kNN_predictions == testY) / length(testY)
+```
+
+```{r section4&5_impute_missing_hasAC_values_by_kNN, echo=FALSE, warning=FALSE, message=FALSE}
+#predict missing values for hasAC
+    #if number of missing values was unknown or large, I would dynamically use for loop to assign case indices, lookup case, append to list, convert to df 
+    #for(i in 1:length(AC_index)){ case[i] <- kNN_data[AC_index[i]] ...}
+    #and evaluate predictions with lapply() vector operation after loop
+
+#index 'hasAC' missing cases (-1 encoding)
+missingAC_index <- which(label_encode$hasAC == -1)
+
+# save un-scaled cases = 2
+kNN_case1 <- kNN_data[missingAC_index[1],]
+kNN_case2 <- kNN_data[missingAC_index[2],]
+
+# append un-scaled case of interest to un-scaled working data frame without missing hasAC 
+# then scale combined data
+kscale_case1 <- as.data.frame(scale(rbind(kNN_data,kNN_case1)%>%select(-hasAC)))
+kscale_case2 <- as.data.frame(scale(rbind(kNN_data,kNN_case2)%>%select(-hasAC)))
+
+# isolate last row of combined data = case to predict
+case1_sc <- kscale_case1[nrow(kscale_case1),]
+case2_sc <- kscale_case2[nrow(kscale_case2),]
+
+# make prediction, which is scaled
+predicted_case1 <- class::knn(train = trainX, test = case1_sc, cl = trainY, k = k_value)
+predicted_case2 <- class::knn(train = trainX, test = case2_sc, cl = trainY, k = k_value)
+```
+
+```{r section4&5_kNN_scaling_key_impute_value, echo=FALSE, message=FALSE, warning=FALSE}
+#named list of unique scaled values
+kNN_scaled_key <- unique(kNN_scaled$hasAC)
+#named list of unique encoded values (un-scaled)
+kNN_data2_key <- unique(kNN_data2$hasAC)
+
+#order is exactly the same so the named list should correspond 1 to 1
+key_map <- data.frame(
+  scaled = kNN_scaled_key,
+  unscaled = kNN_data2_key
+)
+
+#key conversion of scale value to encoding value (could also do manually)
+case1_encoding <- key_map[key_map$scaled == predicted_case1, "unscaled"]
+case2_encoding <- key_map[key_map$scaled == predicted_case2, "unscaled"]
+
+#impute into original SQL queried data frame output.var for use in subsequent code
+label_encode$hasAC[missingAC_index[1]] <- case1_encoding
+label_encode$hasAC[missingAC_index[2]] <- case2_encoding
+```
+
+```{r section4_check_for_multicollinearity, echo=FALSE, message=FALSE, warning=FALSE}
+#no multicollinearity
+#find correlation coefficients
+multicol_df <- cor(label_encode)
+
+# target value for multicollinearity is generally > 0.8 as cutoff threshold 
+# Exclude a perfect 1.0 because that would be the variable against self
+high_cor <- which(multicol_df > 0.80 & multicol_df != 1.0, arr.ind = TRUE)
+
+# inspected manually but also have print check for multicollinearity
+# if highly correlated variables would manually inspect and delete instead of dynamic coding
+if(nrow(high_cor) != 0 && ncol(high_cor) == 0){
+  print("There is multicollinearity present. Remove highly correlated variables from matrix before proceeding with linear regression model")
+}
+```
+
+```{r section4_scale_non_encoded_features, echo=FALSE, message=FALSE, warning=FALSE}
+#similar to code section 4&5_build_hasAC_kNN but decided on different approach
+# EXPLANATION FOR HOW I SCALED DATA: I tested two scaling approaches for the data frame 'label_encode' 
+# 1 : ONLY scaled c(salesPrice,landSizeSqMtrs) AND 2 : scaled ALL features
+# both result in EXACTLY the same coefficient's p-value and R/R-squared values, but different coefficient values (obviously, as the plug in variable value would differ) interesting data exploration and inquired more from ChatGPT to solidify 
+# ChatGPT conversation APA: OpenAI. (2025, April 15). Scaling data columns explained. ChatGPT. https://chatgpt.com/share/67ff1dff-16d4-8006-85a7-5febe328cb1e
+# Because of the above reasons I decided to only scale non-encoded columns to reduce need for secondary key (primary key already needed for label encoded columns) and it would make the lm() more intuitive for value plug in and interpretation
+
+#use p-value and min_max_normalize() from code section '4&5_build_hasAC_kNN'
+#Shapiro Wilks test for normality: p-value decides scaling method
+scaled_data <- if(land_shapiro$p.value < 0.05){
+  #not normal distribution; reject null hypothesis
+  #min-max normalization to scale data that does NOT follow normal distribution
+  scaled_data <- as.data.frame(lapply(label_encode[,c('salesPrice', 'landSizeSqMtrs', 'hasAC')], min_max_normalize))
+  #add non-scaled featured to data frame
+  scaled_data <- cbind(scaled_data, label_encode[,3:8])
+} else if(land_shapiro$p.value >= 0.05) {
+  #normal distribution; fail to reject null hypothesis
+  #z-score standardization used to scale data that DOES follow a normal distribution
+  scaled_data <- as.data.frame(scale(label_encode[,c('salesPrice', 'landSizeSqMtrs', 'hasAC')]))
+  #add non-scaled features to data frame
+  scaled_data <- cbind(scaled_data, label_encode[,3:8])
+}
+```
+
+```{r section4_backward_elimination_to_choose_lm, echo=FALSE, warning=FALSE, message=FALSE}
+#there are 7 features and 99 data records, better than the 10:1 rule of thumb but conduct backwards elimination to reduce further
+#Manually investigated, not dynamic because of time and complexity. 
+
+#order of feature elimination and coefficient's p-value
+#all features
+price_model_1 <- lm(salesPrice ~ landSizeSqMtrs + hasUFFI + parkingSpots + hasPool + hasAC + Gt45YearsOld + finishedBasement, data = scaled_data)
+#eliminate : Gt45YearsOld = 0.867329
+price_model_2 <- lm(salesPrice ~ landSizeSqMtrs + hasUFFI + parkingSpots + hasPool + hasAC + finishedBasement, data = scaled_data)
+#eliminate : finishedBasement = 0.724235
+price_model_3 <- lm(salesPrice ~ landSizeSqMtrs + hasUFFI + parkingSpots + hasPool + hasAC, data = scaled_data)
+#eliminate : hasUFFI = 0.170939
+price_model_4 <- lm(salesPrice ~ landSizeSqMtrs + parkingSpots + hasPool + hasAC, data = scaled_data)
+
+# intercept is borderline but acceptable for p-value = 0.05
+# reassign chosen linear regression model for clear naming
+price_prediction <- price_model_4
+```
+
+```{r section4_lm_residuals_normality_test, echo=FALSE, message=FALSE, warning=FALSE}
+# residuals are normally distributed for the linear regression model, this supports that the model performs well
+
+# inspect residuals, looked at histogram and qqplot of 'resid(price_prediction)' look fairly normal
+# Shapiro Wilks test for normality: p = 0.356 conclude residuals are normally distributed
+resid_distribution <- shapiro.test(resid(price_prediction))
+
+#save p-value for markdown
+p <- round(resid_distribution$p.value, 3)
+
+#manually inspected p-value, extra statement if it needs further work
+if(resid_distribution$p.value < 0.05){
+  cat("Shapiro Wilks Test for normality of linear regressions's residuals had a p-value = ", p,". This is less than 0.05, therefore we reject the null hypothesis and conclude the data is not normally distributed.")
+} 
+```
+
+```{r section4_lm_slope_assignment, echo=FALSE, warning=FALSE, message=FALSE}
+#save coefficients to corresponding variable slope
+price_coefficients <- price_prediction$coefficients
+intercept <- price_coefficients[1]
+landSize_slope <- price_coefficients[2]
+parking_slope <- price_coefficients[3]
+pool_slope <- price_coefficients[4]
+AC_slope <- price_coefficients[5]
+```
+ 
+```{r section4_new_case_use_lm_to_estimate_price, echo=FALSE, message=FALSE, warning=FALSE}
+
+#new case feature assignment:
+land <- 518 # meters squared
+  #need to scale same features as linear model used to evaluate
+  #restate variables
+  maxland <- max(label_encode$landSizeSqMtrs)
+  minland <- min(label_encode$landSizeSqMtrs)
+  #calculate min-max normalization scale value 
+  scaled_land <- (land - minland)/(maxland - minland) 
+UFFI <- 0 # No UFFI
+park <- 2 # two parking spots 
+pool <- 1 # yes, has pool
+ac <- 7 # central AC (use key)
+age45 <- 0 # Not older than 45 years
+bsmnt <- 1 # yes, finished basement
+
+#regression equation function (has 4 relevant features), for manual plug in if desired (got the same answer as when using predict() next)
+regression_eq <- function(land,park,pool,ac) {
+  intercept + (landSize_slope*land) + (parking_slope*park) + (pool_slope*pool) + (AC_slope*ac)
+}
+
+#new case as data frame of all features (using scaled values when relevant)
+new_case <- data.frame(landSizeSqMtrs = scaled_land, parkingSpots = park, hasPool = pool, hasAC = ac, hasUFFI = UFFI, Gt45YearsOld = age45, finishedBasement = bsmnt)
+
+#select relevant features for lm
+scaled_new_case <- new_case %>%
+    select(landSizeSqMtrs, parkingSpots, hasPool, hasAC)
+  
+#use predict() for 95% confidence interval (default)
+prediction <- predict(price_prediction, scaled_new_case, interval = "confidence")
+#gives scaled 'salesPrice' prediction in [0,1] range (applies to CI too)
+lwr_CI <- prediction[,'lwr']
+upr_CI <- prediction[,'upr']
+
+#reverse min-max normalization scaling on prediction values to get actual values
+#APA: OpenAI. (2025ap, April 16). Percent change uffi impact. ChatGPT. https://chatgpt.com/share/67ff6bad-c31c-8006-9cd8-aeafc4fabff0 
+  #restate variables
+  minSP <- min(label_encode$salesPrice)
+  maxSP <- max(label_encode$salesPrice)
+lwr_CI_reverse <- (lwr_CI * (maxSP - minSP)) + minSP
+upr_CI_reverse <- (upr_CI * (maxSP - minSP)) + minSP
+
+#format confidence intervals
+format_lwrCI <- paste("$",format(lwr_CI_reverse, big.mark=","))
+format_uprCI <- paste("$",format(upr_CI_reverse, big.mark=","))
+```
+
+```{r section4_UFFI_impact_on_lm_statement, echo=FALSE, message=FALSE, warning=FALSE}
+#model with UFFI included steps shown in code chunk "linear_regression_models"
+UFFI_model <- price_model_3
+UFFI_model_info <- summary(price_model_3)
+
+# t and p values
+tvalue_UFFI <- UFFI_model_info$coefficients['hasUFFI', 't value']
+pvalue_UFFI <- UFFI_model_info$coefficients['hasUFFI', 'Pr(>|t|)']
+#format for markdown statements
+pvalue_UFFI <- format(round(pvalue_UFFI, 3), nsmall = 3)
+tvalue_UFFI <- format(round(tvalue_UFFI, 3), nsmall = 3)
+
+#hasUFFI coefficient
+UFFI_co <- UFFI_model$coefficients['hasUFFI']
+#convert coefficient to percent by * 100 because binary category
+UFFI_perc <- round(UFFI_co*100,0)
+
+#APA how to interpret summary(): OpenAI. (2025ap, April 16). Percent change uffi impact. ChatGPT. https://chatgpt.com/share/67ff6bad-c31c-8006-9cd8-aeafc4fabff0 
+# percent change in target variable salesPrice, based on coefficient
+UFFI_perc_change <- if(UFFI_perc < 0){
+  statement <- paste0(UFFI_perc, "% lower sales price. ")
+} else if (UFFI_perc > 0) {
+  statement <- paste0(UFFI_perc, "% higher sales price. ")
+} else if (round(UFFI_perc_change, 4) == 0.0000) {
+  statement <- paste0("no change in sales price (i.e. ", UFFI_perc, "% change) ")
+}
+
+#statistical significance, mainly by p-value
+UFFI_signif <- if(pvalue_UFFI >= 0.05){
+  statement <- paste0("However, this difference in price is not statistically significant *(t= ", tvalue_UFFI," , p = ", pvalue_UFFI, ")* despite claims to the contrary by the Realtor Association.")
+} else if(pvalue_UFFI < 0.05) {
+  statement <- paste0("This difference in price is statistically significant *(t= ", tvalue_UFFI," , p = ", pvalue_UFFI, ")* and is in support of claims by the Realtor Association.")
+}
+```
+
+We Used a weighted moving average of the prior four months sales with weights of 0.7 for the most recent months and equal weights for the remaining months to estimate total sales for next two months to be `r forecast_1` and `r forecast_2`.
+
+## Home Pricing Model
+
+To assist agents in setting a price that is market-oriented and fair, we have built a pricing equation that can estimate the likely sales price of a property based on its key characteristics. Pricing of a property should be the estimated price adjusted by a markup to account for sales commission and profit.
+
+The pricing model was developed using multiple linear regression and an estimate for the likely selling price of a home based on various characteristics can be calculated with the equation[^1] below:
+
+$$ \text{House Sale Price Estimate} = `r round(intercept,4)` + (`r round(landSize_slope,4)`\times\text{m}) + (`r round(parking_slope,4)`\times\text{s}) + (`r round(pool_slope,4)`\times\text{p}) + (`r round(AC_slope,4)`\times\text{a}) $$
+where,                                        
+                                            
+  - *m* = size of property in $m^2$        
+  - *s* = number of parking spots           
+  - *p* = presence of pool                
+  - *a* = rank encoded AC *(key right)*  
+
+AC key values to plug into Estimate equation:
+
+  - 0 = none/ no AC
+  - 1 = window
+  - 3 = split
+  - 7 = central
+  <small> note: *yes* = 1, *no* = 0, and variables *M* & *S* are whole number integers </small>
+  
+[^1]: only shows 4 digits after the decimal place but the *"Estimator" calculator* uses full, unrounded slope values
+
+As an aside, we have recently embedded the equation into the "Estimator" calculator on our website, so that our clients have an idea of a likely selling price based on comparable features. To demonstrate the usefulness of the updated pricing model we demonstrate the calculation of the estimated selling price of a 32-year-old four-bedroom single-family home on a 518$m^2$ lot, with an in-ground pool, no presence of UFFI, central AC, a two-car garage, and having a finished basement with a media room and a gym. For this home, the pricing model estimates a selling price between `r format_lwrCI` and `r format_uprCI` (the 95% confidence interval).
+
+It is interesting to note that homes that have UFFI (Urea Formaldehyde Foan Insulation), a type of insulation that was popular in the 1970s and 1980s, but is now recognized as problematic due to formaldehyde off-gassing and other issues, have, on average, a `r UFFI_perc_change` `r UFFI_signif`
+
+## Technical Details
+
+This section presents key technical details on how the forecast and the pricing formula were derived. 
+
+We specifically excluded the month from the regression model, but left the year to account for appreciation in home values over the years. Any features that were not found to be statistically significant (i.e., had p < 0.05) were excluded from the model. 
+
+  General data inspection found only 2 missing data values in the data set under feature 'hasAC'. The missing values for AC were replaced with a classification value obtained (after key conversion for scaling) from housing features : `r names(kscale_case1)`. The kNN classification was trained on the entire data set where min-max normalization scaling was applied due to the data having a p-value = `r format(land_shapiro$p.value, digit =3)`. The entire scaled dataset (excluding the aforementions missing "hasAC" records) was then split between training and testing data; where, 85% made up the training data and 15% made up the testing data. The kNN algorithm resuted in a `r round(kNN_accuracy,1)`% accuracy. 
+  
+  While all feature were scaled for the kNN algorithm, when used to evaluate the multiple linear regression model only "salesPrice" and "landSizeSqMtrs" were scaled (using min-max normalization still). This decision was made to have the linear regression equation be more intuitive for user and easier to understand predictions without needing an additional encoding key conversion to scaled. 
+
+  All categorical data was encoded to be numerical. The binary categories are where only *yes* or *no* decisions are available; they reflect programming standard where 0 = False/no and 1 = True/yes. The "parkingSpot" category was not scaled or encoded differently as the max value for parking was `r max(label_encode$parkingSpot)`, and therefore would not significantly change the linear model. However, the categorical variable “hasAC” was made into a rank encoded value : none = 0, window = 1, split = 3, central = 7. This needed to be scaled for the multiple linear regression modeling as the number 7 is farther from the [0,1] range.
+          
+## Summary
+This report provides a comprehensive analysis of real estate sales performance while offering forecaasting insights and a pricing model to support agents in setting competitive listing prices. The inclusion of data imputation techniques and machine learning based classification enhances the robustness of the analysis.
+
+## References
+
+APA citation for help with Practicum III report. 
+Format of listed references is:
+
+  - **code section name** that is relevant to citation - general topic of conversation 
+    - APA citation that is hyperlinked
+
+ChatGPT conversations:
+
+  - **prep_connect_SQL_database** - Aiven database connection 
+    - OpenAI. (2025ah, April 13). Pragma in mysql. ChatGPT. [https://chatgpt.com/share/67fc432f-3a04-8006-a8ed-d26cba6d4f06](https://chatgpt.com/share/67fc432f-3a04-8006-a8ed-d26cba6d4f06) 
+  - **prep_make_local_db_copy** - make local copy of Aiven database
+    - OpenAI. (2025ah, April 13). Pragma in mysql. ChatGPT. [https://chatgpt.com/share/67fc432f-3a04-8006-a8ed-d26cba6d4f06](https://chatgpt.com/share/67fc432f-3a04-8006-a8ed-d26cba6d4f06)
+  - **section2.1_SQL_query_agents_sales_tables** - learn about WITH clause(used frequently going forward) 
+    - OpenAI. (2025ai, April 13). SQL Group by Year. ChatGPT. [https://chatgpt.com/share/67fc6e25-4a18-8006-9807-e7b329e61953](https://chatgpt.com/share/67fc6e25-4a18-8006-9807-e7b329e61953)
+  - **section2.1_SQL_query_agents_sales_tables** - SQL query does not handle dynamic column alias naming
+    - OpenAI. (2025ai, April 16). Dynamic column aliases in SQL. ChatGPT. (n.d.). [https://chatgpt.com/share/68016223-55bc-8006-9ce1-a591fa82c9f5](https://chatgpt.com/share/68016223-55bc-8006-9ce1-a591fa82c9f5) 
+  - **section2.1_rename_SQL_query_column_names** - learned how to use !! and :=  operators 
+    - OpenAI. (2025aq, April 17). Dynamic column renaming issue. ChatGPT. [https://chatgpt.com/share/68016a59-2588-8006-be7c-0b545d60ef67](https://chatgpt.com/share/68016a59-2588-8006-be7c-0b545d60ef67) 
+  - **section3_bargraph_sales_by_month_recent_2_years** - bargraph 
+    - OpenAI. (2025aj, April 15). Summing sales from multiple years. ChatGPT. [https://chatgpt.com/share/67fea9ed-96d8-8006-bc0d-fde8b0380014](https://chatgpt.com/share/67fea9ed-96d8-8006-bc0d-fde8b0380014)
+  - **section3_format_SQL_query_bargraph_information** - long data format 
+    - OpenAI. (2025aj, April 15). Summing sales from multiple years. ChatGPT. [https://chatgpt.com/share/67fea9ed-96d8-8006-bc0d-fde8b0380014](https://chatgpt.com/share/67fea9ed-96d8-8006-bc0d-fde8b0380014)
+  - **section3_bargraph** - bargraph questions 
+    - OpenAI. (2025ao, April 15). Summing sales from multiple years. ChatGPT. [https://chatgpt.com/share/67fea9ed-96d8-8006-bc0d-fde8b0380014](https://chatgpt.com/share/67fea9ed-96d8-8006-bc0d-fde8b0380014) 
+  - **section4_inspect_dataset_for_missing_values** - help with SQL search of NA values 
+    - OpenAI. (2025ar, April 17). Search null values SQL. ChatGPT. [https://chatgpt.com/share/6801a4a2-b414-8006-9777-9acb78271b49](https://chatgpt.com/share/6801a4a2-b414-8006-9777-9acb78271b49)
+  - **section4_encode_and_find_outliers** - no STDEV in SQL 
+    - OpenAI. (2025al, April 15). SQLite STDDEV function. ChatGPT. [https://chatgpt.com/share/67fefe53-9b5c-8006-8e44-f485639fe90e](https://chatgpt.com/share/67fefe53-9b5c-8006-8e44-f485639fe90e)
+  - **section4_encode_and_find_outliers** - label encoding (later I made it rank encoding) 
+    - OpenAI. (2025ak, April 15). SQL label encoding methods. ChatGPT. [https://chatgpt.com/share/67fef063-5e50-8006-8198-28e7eda358ce](https://chatgpt.com/share/67fef063-5e50-8006-8198-28e7eda358ce)
+  - **section4_scale_non_encoded_features** - scaling approach for lm 
+    - OpenAI. (2025, April 15). Scaling data columns explained. ChatGPT. [https://chatgpt.com/share/67ff1dff-16d4-8006-85a7-5febe328cb1e](https://chatgpt.com/share/67ff1dff-16d4-8006-85a7-5febe328cb1e)
+  - **section4_new_case_use_lm_to_estimate_price** - reverse scaling for estimate 
+    - OpenAI. (2025ap, April 16). Percent change uffi impact. ChatGPT. [https://chatgpt.com/share/67ff6bad-c31c-8006-9cd8-aeafc4fabff0](https://chatgpt.com/share/67ff6bad-c31c-8006-9cd8-aeafc4fabff0) 
+  - **section4_UFFI_impact_on_lm_statement** - interperet summary for % change 
+    - OpenAI. (2025ap, April 16). Percent change uffi impact. ChatGPT. [https://chatgpt.com/share/67ff6bad-c31c-8006-9cd8-aeafc4fabff0](https://chatgpt.com/share/67ff6bad-c31c-8006-9cd8-aeafc4fabff0)
+
+Borrowed Code:
+
+  - **section4&5_build_hasAC_kNN** - define min-max normalization function 
+    - Schedlbauer, M. (2025g, April 7). Min-Max Normalization. 3.409 kNN for Classification: A Primer. [http://artificium.us/lessons/03.ml/l-3-409-knn-primer/l-3-409.html#Min-Max_Normalization](http://artificium.us/lessons/03.ml/l-3-409-knn-primer/l-3-409.html#Min-Max_Normalization)

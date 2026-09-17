@@ -1,0 +1,93 @@
+---
+title: "Analyze Sales Data"
+Author : "Larkin, Yvonne"
+date: "Sp2025"
+output:
+  html_document:
+    df_print: paged
+subtitle: "DA5020 / Assignment 03.2"
+---
+
+```{r Q3_loadPharmaRep, echo=FALSE}
+df.reps <- read.csv("csv-data/pharmaReps.csv")
+```
+
+```{r Q4_loadAllFiles, echo = FALSE}
+files <- list.files(path = "csv-data/", pattern = "^pharmaSalesTxn.*\\.csv$", include.dirs = TRUE, recursive = TRUE)
+# APA Citation to get pattern to work: OpenAI. (2025f, January 28). Troubleshooting list.files() R. ChatGPT. https://chatgpt.com/share/679983af-6d50-8006-8b5a-cc03ec1872ce 
+for(i in 1:length(files)){
+  file_path <- paste("csv-data", files[i], sep = "/")
+  df.sales <- read.csv(file_path, header = TRUE, stringsAsFactors = FALSE)
+}
+# APA Citation to get file path to work: OpenAI. (2025d, January 28). Accessing subfolder files. ChatGPT. https://chatgpt.com/share/6799856b-72c4-8006-b7a2-3d96a5ca26e4 
+```
+
+```{r Q5_writeFunction, echo = FALSE}
+calcTotalSalesPerRep <- function(df_salesTrans, df_salesRep)
+{
+  sum_trans <- data.frame(repID = character(0),
+                          repLastName = character(0),
+                          repFirstName = character(0),
+                          totalSales = numeric(0),
+                          repTerritory = character(0))
+  for (i in 1:nrow(df_salesTrans)){
+    total_sales_value <- df_salesTrans$qty[i] * df_salesTrans$unitcost[i]
+    repID_index <- df_salesTrans$repID[i]
+    
+    if(repID_index %in% sum_trans$repID){
+      sum_trans$totalSales[sum_trans$repID == repID_index] <- sum_trans$totalSales[sum_trans$repID == repID_index] + total_sales_value
+    }else{
+      new_row <- data.frame(
+        repID = as.character(repID_index),
+        repLastName = "",
+        repFirstName = "",
+        totalSales = total_sales_value,
+        repTerritory = ""
+    )
+    sum_trans <- rbind(sum_trans, new_row)
+    }
+    
+    for(j in 1:nrow(df_salesRep)){
+      if(df_salesRep$repID[j] == repID_index){
+        sum_trans$repLastName[sum_trans$repID == repID_index] <- paste(df_salesRep$repLN[j])
+        sum_trans$repFirstName[sum_trans$repID == repID_index] <- paste(df_salesRep$repFN[j])
+        sum_trans$repTerritory[sum_trans$repID == repID_index] <- df_salesRep$repTR[j]
+      break
+      }
+    }
+  }
+return (sum_trans)
+}
+# a lot of back and forth trying to figure this out, APA citation: OpenAI. (2025d, January 28). Accessing subfolder files. ChatGPT. https://chatgpt.com/share/6799856b-72c4-8006-b7a2-3d96a5ca26e4 
+```
+
+```{r Q6_useFunctionAbove, echo = FALSE, warning=FALSE}
+totalSales <- calcTotalSalesPerRep(df.sales, df.reps)
+library(knitr)
+totalSales$totalSales <- as.numeric(totalSales$totalSales)
+totalSales$totalSales <- paste0("$", formatC((totalSales$totalSales), format = "f", big.mark = ",", digits = 2))
+tableReps <- kable(totalSales[,c(2, 5, 4)], align = c('l', 'l', 'r'))
+```
+
+A total of `r length(df.sales$txnID)` sales transactions were found in `r length(files)` files containing sales for the `r length(totalSales$repID)` sales representatives listed below:
+`r tableReps`
+
+```{r Q7_salesByTerritory, echo = FALSE}
+calcTotalSalesPerTerritory <- function(df_salesTrans)
+{
+  df.territory <- aggregate(totalSales ~ repTerritory, data = df_salesTrans, FUN = sum)
+  
+  return(df.territory)
+}
+```
+
+```{r Q8_territorySaleOutput, echo = FALSE}
+totalSales2 <- calcTotalSalesPerRep(df.sales, df.reps)
+salesByTerritory <- calcTotalSalesPerTerritory(totalSales2)
+salesByTerritory$totalSales <- as.numeric(salesByTerritory$totalSales)
+salesByTerritory$totalSales <- paste0("$", formatC(salesByTerritory$totalSales, format = "f", big.mark = ",", digits = 2))
+territoryTable <- kable(salesByTerritory, align = c('l', 'r'))
+```
+
+Sales are broken down by the `r length(salesByTerritory$repTerritory)` territories as follows:
+`r territoryTable`

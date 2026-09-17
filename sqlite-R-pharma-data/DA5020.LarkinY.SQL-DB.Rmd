@@ -1,0 +1,226 @@
+---
+title: "Create ProjectDB SQLite Database"
+author: "Larkin, Yvonne"
+subtitle: 'Assignment 08.1: SQL Querires'
+date: "Sp 2025, March 11"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r}
+library(RSQLite)
+
+fpath = ""
+dbfile = "projectdb3.db"
+
+# if database file already exists, we connect to it, otherwise
+# we create a new database
+dbcon <- dbConnect(RSQLite::SQLite(), paste0(fpath,dbfile))
+```
+
+```{sql connection=dbcon}
+drop table if exists projectmgr
+```
+
+```{sql connection=dbcon}
+drop table if exists projects
+```
+
+```{sql connection=dbcon}
+drop table if exists certifications
+```
+
+```{sql connection=dbcon}
+drop table if exists earnedcerts
+```
+
+```{sql connection=dbcon}
+create table projectmgr (
+  pmid integer,
+  name text not null,
+  primary key (pmid)
+)
+```
+
+```{sql connection=dbcon}
+create table certifications (
+  cid integer not null,
+  cert text not null,
+  body text not null,
+  primary key (cid)
+)
+```
+
+```{sql connection=dbcon}
+create table earnedcerts (
+  pmid integer,
+  cert integer not null,
+  primary key (pmid,cert)
+  foreign key (pmid) references projectmgr(pmid)
+  foreign key (cert) references certifications(cid)
+)
+```
+
+```{sql connection=dbcon}
+create table projects (
+  pid integer,
+  pname text default "No Name",
+  budget double default 0,
+  pmgr integer  not null,
+  primary key (pid),
+  foreign key (pmgr) references projectmgr(pmid)
+)
+```
+
+```{sql connection=dbcon}
+insert into certifications values
+  (1,"PMP","Project Management Institute"),
+  (2,"APM","Project Management Institute"),
+  (4,"CBAP","International Institute of Business Analysis"),
+  (6,"PSM","Scrum Organization"),
+  (5,"CIPM","American Academy of Project Management")
+```
+
+```{sql connection=dbcon}
+insert into projectmgr values
+  (11,"Xi Xufen"),
+  (22,"Ann Kelsey"),
+  (18,"Sandeep Ranghani"),
+  (19,"Alicia Knauss"),
+  (38,"Roxanna da Silva"),
+  (23,"Wagner Ormond"),
+  (47,"Margaret O'Shea"),
+  (43,"Kamala Patel"),
+  (20,"Alden White")
+```
+
+```{sql connection=dbcon}
+insert into earnedcerts values
+  (11,1),
+  (11,4),
+  (18,1),
+  (22,1),
+  (19,1),
+  (47,1),
+  (23,1),
+  (20,1),
+  (20,4),
+  (38,5)
+```
+
+```{sql connection=dbcon}
+insert into projects values
+  (100,"GOTAM",350000,11),
+  (200,"Data Twist",875000,20),
+  (300,"Alpha Launch",12500,18),
+  (302,"Alpha Arch Design",38000,18),
+  (303,"Alpha Dev",125000,18),
+  (305,"Alpha Analytics Dashboard",22900,38),
+  (505,"Training Portal Design",49900,19),
+  (811,"Bootstrap Demo",0,47)
+```
+
+```{sql connection=dbcon}
+select * from projectmgr
+```
+
+```{sql connection=dbcon}
+select * from projects
+```
+
+```{sql connection=dbcon}
+select * from certifications
+```
+
+```{sql connection=dbcon}
+select * from earnedcerts
+```
+## ERD of Project Database
+The ERD for the project database is shown below:
+
+My [Lucid Chart]("https://lucid.app/documents/embedded/bd3e86ec-fb83-4592-8bbd-3b9d90adb7d5?invitationId=inv_a3e6a677-196a-4f84-8dac-d3e797a0a77b#") is giving me difficulty to embed in a pdf with the provided HTML link from Lucid. Therefore I am embedding the image for the pdf as well as providing the link for HTML.
+
+![]("C:\Users\yvonn\Downloads\lucidchart"){width="70%"}
+
+<div style="width: 640px; height: 480px; margin: 10px; position: relative;"><iframe allowfullscreen frameborder="0" style="width:640px; height:480px" src="https://lucid.app/documents/embedded/bd3e86ec-fb83-4592-8bbd-3b9d90adb7d5" id="zOt0-mHFiIS."></iframe></div>
+
+### Q2.1 List the names of all project managers
+```{sql connection= dbcon}
+SELECT DISTINCT name
+FROM projectmgr
+ORDER BY name;
+```
+### Q2.2 How many projects mangers are there?
+```{sql connection=dbcon}
+SELECT DISTINCT count(name) AS 'Number of Managers'
+FROM projectmgr;
+
+```
+### Q2.3 List the names of all project managers who manage at least one project, ordered alphabetically starting with 'A'
+```{sql connection=dbcon}
+SELECT M.name, COUNT(P.pid) AS 'Project Count'
+FROM projectmgr M JoIN projects P ON (M.pmid = P.pmgr)
+GROUP BY M.name
+HAVING COUNT(M.name) > 0
+ORDER BY M.name;
+```
+### Q2.4 List all project names, the name of the project manager, and the budget
+```{sql connection=dbcon}
+SELECT P.pname AS 'Project Name', M.name AS 'Project Manager', P.budget AS 'Project Budget'
+FROM projectmgr M JoIN projects P ON (M.pmid = P.pmgr)
+ORDER BY P.pname;
+```
+### Q2.5 What is the average budget for all projects?
+```{sql connection=dbcon}
+SELECT avg(budget) AS 'Average Budget Across All Projects'
+FROM projects;
+```
+### Q2.6 Which project managers have more than two certificationa? List their names. This query requires a GROUP BY
+```{sql connection=dbcon}
+SELECT N.name, COUNT(C.cert) AS 'Certification Count'
+FROM projectmgr N JoIN earnedcerts C ON (N.pmid = C.pmid)
+GROUP BY N.name
+HAVING COUNT(C.cert) > 2
+ORDER BY N.name;
+```
+There are no managers with more than 2 certifications, if you change line 179 to 'HAVING COUNT(C.cert) >= 2' You will see that two managers (Alden White and Xi Xufen) have two certificates but no manager has above two.
+
+
+### Q2.7 How many projects have a budget that is below the average budget?
+```{sql connection=dbcon}
+SELECT COUNT(pid) AS "Number of Projects below total average budget"
+FROM projects
+WHERE budget < (SELECT AVG(budget) FROM projects);
+```
+### Q2. Which Projects have a project name that contains the text "Design" anywhere in the project name. List names of the projects
+```{sql connection=dbcon}
+SELECT pname AS 'Project Name'
+FROM projects
+WHERE pname LIKE '%Design%'
+```
+### Q2.9 How many project managers manage projects that in total budget (i.e the sum of the budgets of their projects) are no more than $50,000?
+```{sql connection=dbcon}
+SELECT COUNT(*) AS 'Number of Project Managers'
+FROM(
+  SELECT M.name, SUM(P.budget) AS 'Total Budget'
+  FROM projectmgr M JOIN projects P ON (M.pmid = P.pmgr)
+  GROUP BY M.name
+  HAVING SUM(P.budget) <= 50000
+) AS subquery;
+```
+
+### Q2.10 Which project managers do not manage any projects? List their names
+```{sql connection=dbcon}
+SELECT name
+FROM projectmgr
+WHERE pmid NOT IN (SELECT pmgr FROM projects)
+ORDER BY name;
+```
+
+
+```{r}
+dbDisconnect(dbcon)
+```
+

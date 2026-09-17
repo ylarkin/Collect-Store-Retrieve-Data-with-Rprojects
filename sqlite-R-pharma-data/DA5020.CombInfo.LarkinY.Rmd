@@ -1,0 +1,112 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+Load any libraries needed in the assignment and convert the provided file to a dataframe in R. The CSV is a standard convertion using read.csv(). Additionally, I want to add all desired values to the data frame (e.g. unit_price) before I move it to a database in SQL to help simplify things.
+```{r import_files_to_df, message=FALSE, warning=FALSE}
+library(XML)
+library(DBI)
+library(RSQLite)
+
+#create csv data frame
+# standard csv to import to data frame
+csv_df <- read.csv("http://artificium.us/datasets/pharmaSalesTxn.csv")
+# create unit price column in csv df
+csv_df$unit_price <- csv_df$amount/csv_df$qty
+```
+
+Next, because the XML file has an attribute for repID which serves as a primary key/ foreign key between the two files I need to parse that information out and join the vector as a new column in the xml_df. However because the XML file is a two-tier file I can easily use xmlToDataFrame() for the bulk conversion.
+```{r create_dataframes}
+# create XML data frame
+# XML file is 2 tier but has rep attributes we need so parse first
+xml_parse <- xmlParse("http://artificium.us/datasets/pharmaReps-B.xml")
+root <- xmlRoot(xml_parse)
+# 2 tiered xml so can use xmlToDataFrame function
+xml_df <- xmlToDataFrame(root)
+
+# only rep_id attribute needed, initiate vector
+repID <- c()
+#loop through children
+for(i in 1:xmlSize(root)){
+  repID[i] <- xmlAttrs(root[[i]])
+}
+
+# "r" in ID we don't want, so remove it
+repID <-gsub("r", "", repID)
+
+# column bind new attribute vector to the xml_df
+xml_df <- cbind(xml_df, repID)
+```
+
+Now that I have my data frames I need to move them into a SQL database because I desire to use queries in SQL to easily join the tables and extract the information desired.
+```{r create_database}
+# create a file for SQLite database
+db_file <- "pharma_data.sqlite"
+# create a new database
+dbSales <- dbConnect(RSQLite::SQLite(), db_file)
+
+#drop table if exists, helps when running code multiple times in same environment
+noPrint <- dbExecute(dbSales, "DROP TABLE IF EXISTS xml_data")
+noPrint <-dbExecute(dbSales, "DROP TABLE IF EXISTS csv_data")
+
+#create tables in new database from the previously made data frames from files
+dbWriteTable(dbSales, "xml_data", xml_df)
+dbWriteTable(dbSales, "csv_data", csv_df)
+```
+## First Bullet Point
+In the prompt, it says to create a tabular representation of 'Last Name', 'First Name', and 'Amount Sold' by the corresponting representatives while excluding the drugs 'Xinoprozen' and 'Alaraphosol'. 
+
+I need to join the tables I created above by their common key : repID. RepID would be the primary key for the xml_data and the foreign key for the csv_data. I joined and grouped by the repID to consolidate the tables and get the desired sum of product sales. I need to specify in descending order for the table. And I order it by amount sold for easy of information absorption visually. To exclude specific drugs from the summation I used 'NOT IN' for the 'WHERE' criteria.
+
+```{sql without_2ndBullet, connection=dbSales}
+SELECT X.lastName, X.firstName, SUM(C.amount) AS 'Total Sold by Rep'
+FROM xml_data X JOIN csv_data C ON (X.repID = C.repID)
+WHERE C.prod NOT IN ('Xinoprozen', 'Alaraphosol') 
+GROUP BY X.repID
+ORDER BY SUM(C.amount) 
+DESC
+```
+## Second Bullet Point
+This was done on it's own but then I was trying to figure out where the second bullet of information belonged.
+
+I am unsure what the prompt is asking in relation to the second bulletpoint. I don't know if it wants me to (A) display the cheapest drug sold by unit_price by representative in the same table, (B) to list all of the drugs in order of cheapest to most expensive, or (C) to extract just the cheapest drug overall by unit price. I was very torn between A and C, so I am returning all of them in hopes one of them is the desired output. 
+
+### Option A: 
+I added the 'C.prod' to the 'SELECT' criteria and filtered for the cheapest drug by the rep by adding the 'HAVING' criteria to use an aggregate function. 
+
+```{sql OptionA, connection=dbSales}
+SELECT X.lastName, X.firstName, SUM(C.amount) AS 'Total Sold by Rep', C.prod
+FROM xml_data X JOIN csv_data C ON (X.repID = C.repID)
+WHERE C.prod NOT IN ('Xinoprozen', 'Alaraphosol') 
+GROUP BY X.repID
+HAVING MIN(C.unit_price)
+ORDER BY SUM(C.amount) 
+DESC
+```
+
+
+### Option B: 
+Below is a table listing **all** the drug products available in order of unit price going from cheapest to most expensive. I group by product name to eliminate multiple rows of the same information. But the table is ordered by the product price, default is from lowest to highest.
+
+```{sql OptionB, connection=dbSales}
+SELECT prod AS 'Product Name', unit_price AS 'Price Per Unit'
+FROM csv_data
+GROUP BY prod
+ORDER BY unit_price 
+```
+### Option C: 
+But in case just the cheapest drug was wanted, I subqueried the minimum unit price to select the product name. But I used "distinct" to remove duplicate rows.
+
+The cheapest drug by unit price is:
+```{sql OptionC, connection=dbSales}
+SELECT DISTINCT prod AS 'Cheapest Drug by unit'
+FROM csv_data 
+WHERE unit_price = (SELECT MIN(unit_price) FROM csv_data)
+```
+### Regardless of the method of querying, the cheapest drug is **Diaprogenix**.
+```{r}
+dbDisconnect(dbSales)
+```
+

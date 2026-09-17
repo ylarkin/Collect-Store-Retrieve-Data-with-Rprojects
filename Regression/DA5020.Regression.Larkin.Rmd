@@ -1,0 +1,263 @@
+---
+title: "Build Regression Models"
+author: "Larkin, Yvonne"
+date: "Sp 2025, April 2nd"
+output:
+  html_document:
+    df_print: paged
+subtitle: DA5020 / Regression 11.1
+---
+```{r loadLibraries, message=FALSE, warning=FALSE}
+suppressPackageStartupMessages(library(knitr))
+suppressPackageStartupMessages(library(TTR))
+suppressPackageStartupMessages(library(dplyr))
+```
+## Load the CSV data into R
+```{r Q2_loadData, message=FALSE, warning=FALSE}
+wine_df <- read.csv("https://s3.us-east-2.amazonaws.com/artificium.us/datasets/wine-quality-data.csv")
+```
+The wine data is loaded as *wine_df* has `r ncol(wine_df)` columns headed: `r colnames(wine_df)`
+
+## Outliers
+### Visually Review those Identified
+```{r Q3_identify_outliers, message=FALSE, warning=FALSE}
+#identify outliers, and look at results
+numeric_cols <- sapply(wine_df, is.numeric)
+for( i in 1:length(numeric_cols)){
+  #only numeric columns evaluated
+  if(numeric_cols[i] == TRUE){
+    #find mean and standard deviation for current column
+    m <- mean(wine_df[,i], na.rm = TRUE)
+    s <- sd(wine_df[,i], na.rm = TRUE)
+    #find outlier as defined by z-score above 3.0
+    outliers <- which(abs((wine_df[,i] - m) / s)>3.0)
+    #print results to view
+    if (length(outliers) > 0) {
+      ## found outliers; view before deciding what to do to them
+      cat("Found ",length(outliers), " outliers in column '", names(wine_df)[i], "': \n")
+      cat(" category average : ", m, " sd : ", s, "   --> ", wine_df[outliers,i], "\n\n")
+    }
+  }
+}
+```
+Of the `7 columns there are`r ncol(wine_df)` there are `r sum(sapply(wine_df, is.numeric))` numeric columns. All outliers have been identified as any value with a z-score above 3.0 (i.e. if the value is more than three standard deviations from the mean). 
+
+### 'fixed.acidity'
+I tinkered with the data few different ways: general outliers identified above, outliers based on wine type (red, rose, white), and where only the outliers based on type were replaced for "red".
+
+The results were all very similar, with minor adjustment to the probability assignment for the linear model but not a significant change to the model or modell fit. I will touch on this more in section for question 7. Because of this and no specific instruction on how to deal with categories concerning domain knowledge I decided to go with the simplest outlier approach: where all 128 outliers identified above would be replaced with *NA_integer* and subsequently imputed as a missing value in the following section.
+
+### 'residual.sugar'
+These appeared to be blatant outliers as the average is `r mean(wine_df[,"residual.sugar"],na.rm=T)`; therefore all were replaced with *NA_integer* to be imputed in next section.
+
+### 'sulphates'
+I do not have significant wine domain knowledge and based on looking at the average, I decided to remove all outliers and replace with *NA_integer*. It does appear from a quick google search that sulphates can occur at and aboe 1.0g/L but there are no units listed and again the average was around half that.
+
+### 'alcohol'
+There is only one outlier and it appears to be a missed decimal upon data entry so we with infer that the correct entry would be 13.7 instead of 137.
+
+### 'quality'
+This category appears to be a wine rating that is not an inherent trait of the wine but a deduced score from wine tasters. Therefore none of the ratings should be viewed as outliers because it is more of a subjective quality.
+
+```{r Q3_handle_outliers, message=FALSE, warning=FALSE}
+#handle each category
+
+# 'fixed.acidity' by type drastically changes which are outliers
+# 128 outliers not separated by type, reset variables
+m <- mean(wine_df[,"fixed.acidity"], na.rm = TRUE)
+s <- sd(wine_df[,"fixed.acidity"], na.rm = TRUE)
+#find outlier as defined by z-score above 3.0
+outliers <- which(abs((wine_df$fixed.acidity - m) / s)>3.0)
+wine_df$fixed.acidity[outliers] <- NA_integer_
+
+# 'residual.sugars' do seem to be outliers, replace with NA
+for(i in 1:nrow(wine_df)){
+  #re-set valuesfor residual sugar mean and sd
+  m <- mean(wine_df[,"residual.sugar"])
+  s <- sd(wine_df[,"residual.sugar"])
+  wine_df$residual.sugar[which(abs((m - wine_df[i,"residual.sugar"]) / s)>3.0)] <- NA_integer_
+}
+
+# 'pH' outliers are tightly grouped together and still in the same ranking for pH as the mean so ignore them as outliers, google also said pH of wine is 3-4 where sparkling can be higher
+
+# 'sulphates' these are higher and don't look like an entry error so will remove
+# make NA and replace with respective imputed values after
+for(i in 1:nrow(wine_df)){
+  #re-set values for sulphate mean and sd
+  m <- mean(wine_df[,'sulphates'], na.rm = TRUE)
+  s <- sd(wine_df[,'sulphates'], na.rm = TRUE)
+  #replace outliers
+  wine_df$sulphates[which(abs((m - wine_df[i,"sulphates"]) / s)>3.0)] <- NA
+}
+
+# singular 'alcohol' outlier seems like a user input error, move decimal
+wine_df$alcohol[which(wine_df$alcohol == 137)] <- 13.7
+
+#quality seems to be a observed rating from 1 to 10, so none are outlier values by nature, leave alone
+```
+
+## Missing Values
+There were explicit instructions to impute the median value for a category filtered by the wine type. These missing values are any outliers reassigned to *NA_integer* and any missing values originally in the data set (if any).
+
+```{r Q4_id_missingValues, message=FALSE, warning=FALSE}
+# median based on type of wine
+num_Rows <- nrow(wine_df)
+num_Cols <- ncol(wine_df)
+# set found to false
+found <- F
+for(i in 1: num_Cols){
+  missingValues <- which (is.na(wine_df[,i]) | wine_df[,i] == "")
+  numMV <- length(missingValues)
+  if(numMV > 0){
+    print(paste0("Column '", names(wine_df)[i], "' has ", numMV, " missing values"))
+    # set found to true, to prevent print statement where no missing values 
+    found <- T
+  }
+}
+# no missing values, found still false
+if(!found){
+  print("no missing values detected")
+}
+```
+```{r Q4_impute_missingValues, message=FALSE, warning=FALSE}
+# all columns except type are numeric, and type has no missing values ,so treat all numerically
+for(i in 1:num_Cols){
+  #find median values by type
+  median_red <- median(wine_df[which(wine_df[,"type"] == "red"), i], na.rm = TRUE)
+  median_rose <- median(wine_df[which(wine_df[,"type"] == "rose"), i], na.rm = TRUE)
+  median_white <- median(wine_df[which(wine_df[,"type"] == "white"), i], na.rm = TRUE)
+  #replace missing values with median, no missing type values so won't impact with NA
+  missingValues <- which(is.na(wine_df[,i]))
+  wine_df[missingValues, i] <- ifelse(wine_df[missingValues, "type"]== "red", median_red, ifelse(wine_df[missingValues, "type"]== "rose", median_rose, median_white))
+}
+```
+
+## One-hot Encoding
+There are 3 types of wine: red, rose, and white. Because of this 2 new columns need to be added to the data frame where we can assign binary code to the columns where 1 indicates TRUE and 0 indicates FALSE. The last type of wine is an implied value of all zeros and not listed in the data frame but still part of the linear modeling later. The column "type" in the wine_df was left in the data frame but not included in the modeling.
+
+```{r Q5_one_hot_encoding, message=FALSE, warning=FALSE}
+#three options, not binary so need to make new columns where there is one less than the category types and where 1 = TRUE and 0 = FALSE
+n <- nrow(wine_df)
+#initialize columns
+wine_df$red <- 0
+wine_df$rose <- 0
+#loop through
+for(i in 1:n){
+  if(wine_df$type[i] == "red")
+    wine_df$red[i] <- 1
+  else if(wine_df$type[i] == "rose")
+    wine_df$rose[i] <- 1
+}
+```
+
+## Full Regression Model with all Features
+
+```{r Q6_fullRegressionModel, warning=FALSE, message=FALSE}
+#use all features to predict wine quality in regression model
+wine_model <- lm(quality ~ fixed.acidity + residual.sugar + pH + sulphates + alcohol + red + rose, data = wine_df)
+summary(wine_model)
+```
+The above regression model is based on the approach where all 'fixed.acidity' outliers not filtered by type are replaced with the imputed median value by type. The probability of the 'fixed.acidity' and 'pH' are above 0.05 blatantly in this regression model. However, if the 'fixed.acidity' is filtered by type for outliers there are only 58 (12 are "red" and 48 are "white").The corresponding coefficients for 'fixed.acidity' and 'pH' have probabilities just below the 0.05 threshold but still very large in comparison to significant variables. The other model by type is not more accurate in accordance to overall significance or $R^2$, therefore I decided to stay with the more straightforward replacement where it was more obvious which variables are not significant to the model for step wise elimination in the following section.
+
+## Step-Wise Elimination
+### 'fixed.acidity'
+This overall highest category is 'fixed.acidity' and is removed from the following model. It does not significantly impact the other variable probabilities, overall model significance, or $R^2$ values. Continue to remove next variable with largest p-value.
+
+```{r Q7_stepwiseElimination2, warning=FALSE, message=FALSE}
+# fixed.acidity is the next highest p-value
+wine_model <- lm(quality ~ residual.sugar + pH + sulphates + alcohol + red + rose, data = wine_df)
+summary(wine_model)
+
+```
+
+### 'rose'
+"Rose" category's high p-value implyies it is not significantly different from the "white" category, which is implied into the model. But "red" is significant and with keeping at least one of the hot-one encoded categories it will keep the implied as well. "Rose" category is removed from the following model.
+
+However, this still does not significantly impact the other variable probabilities, overall model significance, or $R^2$ values. Continue to remove next variable with largest p-value.
+
+```{r Q7_stepwiseElimination3, warning=FALSE, message=FALSE}
+# rose is the next highest p-value, which would imply not significantly different from white but red is
+wine_model <- lm(quality ~ residual.sugar + pH + sulphates + alcohol + red, data = wine_df)
+summary(wine_model)
+```
+
+### 'pH'
+The next variable with the highest p-value left in the model is "pH". Removal from the following model still does not significantly impact the other variable probabilities, overall model significance, or $R^2$ values. Continue to remove next variable with largest p-value.
+
+```{r Q7_stepwiseElimination4, warning=FALSE, message=FALSE}
+# pH is the next highest p-value that is the last above 0.05
+wine_model <- lm(quality ~ residual.sugar + sulphates + alcohol + red, data = wine_df)
+summary(wine_model)
+```
+
+### Regression Equation
+Based on the above model (last of the step-wise elimination) we can build a regression model from the "Coefficients" table based on the variable's corresponding "Estimate". The "estimate" gives us the slope for the corresponding variable and the starting intercept.
+```{r Q8_linear model, warning=FALSE, message=FALSE}
+#assign to variables for markdown
+wine_lm_coeff <- wine_model$coefficients
+intercept <- round(wine_lm_coeff[1],2)
+slope1 <- round(wine_lm_coeff["residual.sugar"],2)
+slope2 <- round(wine_lm_coeff["sulphates"],2)
+slope3 <- round(wine_lm_coeff["alcohol"],2)
+slope4 <- round(wine_lm_coeff["red"],2)
+#implied slope of 0 for white
+```
+
+## Regression Equation: 
+$$
+\hat{y} = `r intercept` + (`r slope1`*\text{residual.sugar}) + (`r slope2`*\text{sulphates}) + (`r slope3`*\text{alcohol}) + (`r slope4`*\text{red}) + (0*\text{white})
+$$
+
+## Root Mean Squared Error (RMSE)
+Overall, the RMSE indicates model performance and is interpreted in the dependent variables units. So depending on the scale, is how the number should be interpreted. Because, it basically tells you how far a prediction is from the actual observation.
+```{r Q9_RMSE, warning=FALSE, message=FALSE}
+mse <- mean((wine_df$quality - predict(wine_model))^2)
+rmse <- sqrt(mse)
+```
+
+The wine model's RMSE is `r round(rmse,2)`. The quality rating seems to be a scale of 1 to 10 but the range we observe is a minimum of `r min(wine_df[,"quality"])` to a maximum of `r max(wine_df[,"quality"])`. It would appear to be a moderate to fair prediction depending on the overall scale interpretation. But for the sake fo data in the file having a range of `r (max(wine_df[,"quality"]) - min(wine_df[,"quality"]))`, I would say it is a more moderate given the low $R^2$ value in the linear model.
+
+
+## New Wine Prediction
+Given the wine parameters: 
+fixed.acidity = 7.3, residual.sugar = 1.84, pH = 3.67, sulphates = 0.49, alcohol = 8.6, type = "white"
+
+We can evaluate with the above regression equation that represents our model.
+```{r Q10_predictWine, warning=FALSE, message=FALSE}
+new_wine <- data.frame(residual.sugar = 1.84,
+                       sulphates = 0.49,
+                       alcohol = 8.6,
+                       red = 0)
+result <- predict(wine_model, new_wine)
+```
+The evaluated quality score for the wine is `r round(result, 2)`.
+
+## Confidence Interval
+```{r Q11_ConfidenceInterval, message=FALSE, warning=FALSE}
+resultCI <- predict(wine_model, new_wine, interval = "confidence")
+```
+The 95% confidence interval for the derived model is: `r round(resultCI[1,2],2)` to `r round(resultCI[1,3],2)`
+
+## Evaluation of Distribution
+Based on the following histogram, QQ plot, and Shapiro-Wilks test it would generally *appear* to be a normal distribution but we would overall conclude that the data is **not** normally distributed.
+This is because the following histogram is skewed slightly to the right for the main distribution but you can see more tappering left.
+```{r Q12_eval_distribution, warning=FALSE, message=FALSE}
+hist(resid(wine_model), main = "histogram of Residuals", col = "lightblue")
+```
+
+Both tails of the QQ plot deviate from the line, and the ideal normal distribution QQ plot would be a 45 degree angle.
+```{r Q12_QQplot, warning=FALSE, message=FALSE}
+qqnorm(resid(wine_model))
+qqline(resid(wine_model), col = "red")
+```
+
+Lastly, while the W value for the Shapiro Wilks test is very close to 1 indicating it is probably normally distributed. The p value is below the standard 0.05 cut off threshold which would say we reject the null hypothesis of Shapiro Wilks that says the data is normally distributed.
+```{r Q12_shapiroWilks, warning=FALSE, message=FALSE}
+all_residuals <- resid(wine_model)
+#subsample of 5000 as mas limit for shapiro wilks test
+#no replacement because want unique values
+resid_sample <- sample(all_residuals, size = 5000, replace = FALSE)
+shapiro.test(resid_sample)
+```
+
+So overall, I would say the data is not normally distributed.

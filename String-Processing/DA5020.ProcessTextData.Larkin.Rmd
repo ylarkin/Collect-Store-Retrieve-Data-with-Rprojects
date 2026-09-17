@@ -1,0 +1,223 @@
+---
+title: "Process Textual Data"
+author: "Larkin, Yvonne"
+date: "Sp 2025, February 11th"
+output:
+  html_document:
+    df_print: paged
+subtitle: DA5020/ Assignment 05.1
+---
+```{r Q2/Q4_install/load_packages, echo = FALSE, warning = FALSE, message = FALSE}
+# APA citation below for installing package
+# Martin Schedlbauer. (2025, January 13). Installing Packages. 6.100 Beginning R. http://artificium.us/lessons/06.r/l-6-100-beginning-r/l-6-100.html  
+# modified to a loop 
+packages <- c("dslabs", "knitr", "kableExtra", "lubridate", "tidyverse")
+for(i in 1:length(packages)){
+  if(packages[i] %in% rownames (installed.packages()) == FALSE){
+    install.packages(packages[i])
+  }
+}
+# I read the library{base} for "? require()" in help tab of RStudio
+for(i in 1:length(packages)){
+  require(packages[i], character.only = TRUE, warn.conflicts = FALSE, quietly = TRUE)
+}
+```
+
+```{r Q3_explore_reported_heights_dataset, echo = FALSE}
+q3_data <- reported_heights
+#students report height in inches and their sex, timestamp recorded entries
+```
+
+
+```{r Q4_install_kableExtra, echo = FALSE, message = FALSE, warnign = FALSE}
+#modified code block for Q2 above to loop through more packages used for this assignment
+
+#APA citation on kableExtra formatting this block: 
+#1:Zhu, H. (2024, January 18). Create Awesome HTML Table with knitr::kable and kableExtra. Create awesome HTML table with knitr::kable and kableextra. https://haozhu233.github.io/kableExtra/awesome_table_in_html.html 
+
+convert_date <- as.Date(q3_data[,1])
+row_month <- month(convert_date, label = TRUE, abbr = FALSE)
+#add column with full name of month
+q3_data$month <- row_month
+
+#maintain month order
+row_names <- c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+
+#loop information, initialize variables
+female.counts <- numeric(length(row_names))
+male.counts <- numeric(length(row_names))
+for(i in 1:length(row_names)){
+  female.counts[i] = length(which(q3_data$sex == "Female" & q3_data$month == row_names[i]))
+  male.counts[i] = length(which(q3_data$sex == "Male" & q3_data$month == row_names[i]))
+}
+
+tableMonthBySex <- data.frame(
+  Month = row_names,
+  Female = female.counts,
+  Male = male.counts
+)
+
+kable(tableMonthBySex, caption = "Number of Height Entries by Sex Each Month:", align = c("l", "c", "c")) %>%
+  kable_styling(bootstrap_options = "striped", full_width = TRUE, font_size = "14", position = "left", html_font = "Courier") %>%
+  column_spec(1, bold = TRUE,) %>%
+  column_spec(2, background = "pink") %>%
+  column_spec(3, background = "lightblue")
+
+#remove the column added for this block, since not needed later
+q3_data <- q3_data[,-4]
+```
+
+```{r Q5_createHeightConversionColumn, echo = FALSE, message = FALSE, warning = FALSE}
+#APA citation for entire block:
+#constant changing and adjusting (10 drastically different drafts) I couldn't say exactly what was where but I learned a lot despite the stress. started trying under dplyr mutate but stuck with creating function in the end without dplyr
+#1: OpenAI. (2025k, February 11). Chatgpt. Convert measurements with mutate. https://chatgpt.com/c/67abbc75-f890-8006-972d-9f4689d01fc0 
+#2:OpenAI. (2025k, February 11). Chatgpt. Data Types and NA. https://chatgpt.com/c/67aba955-06f8-8006-88b3-19046d8bd16a 
+#3: OpenAI. (2025k, February 11). adjust my code. ChatGPT. https://chatgpt.com/c/67abe817-52f4-8006-8b37-998069a5ba9f 
+#4 ClassNotes: Martin Schedlbauer. (2024, February 14). Splitting A String into Tokens (and all Parsing sections). 6.112 Basics of Text & String Processing in R. http://artificium.us/lessons/06.r/l-6-112-text-proc/l-6-112.html#Preface 
+#5: Wikipedia. (2025, February 11). List of tallest people. Wikipedia. https://en.wikipedia.org/wiki/List_of_tallest_people 
+
+#helper function 1
+word_to_number <- function(word) {
+  numbers <- c("zero" = 0, "one" = 1, "two" = 2, "three" = 3, "four" = 4, "five" = 5, "six" = 6, "seven" = 7, "eight" = 8, "nine" = 9, "ten" = 10, "eleven" = 11, "twelve" = 12, "and" = "")
+  word <- tolower(word)
+  word <- gsub("foot | feet", "'", word)
+  word <- gsub("inch | inches", "\\\"", word)
+  word_parts <- unlist(strsplit(word, "\\s+"))
+  word_parts <- gsub("[^a-zA-Z0-9]", "", word_parts)
+  return(word_parts)
+  #didn't finish ironing out kinks for row 311, since I wanted to submit on time
+}
+
+#helper function 2
+value_recognized_numeric <- function(height) {
+  height_cm <- NA
+  if(!is.na(as.numeric(height))){
+    height <- as.numeric(height)
+    if( height < 10.0 && height >= 3){
+      #feet conversion
+      height_cm <- height * 30.48
+    } else if ( height < 3 && height > 0){
+      #meters conversion
+      height_cm <- height * 100
+    } else if ( height > 10.0 && height < 85.0) {
+      #inches conversion
+      height_cm <- height * 2.54
+    } else if ( height > 85.0 && height < 274.0) {
+      #cm already
+      height_cm <- height
+      # used rounded 9ft or 274.3 as cut off, for tallest person I found on record was 8ft 11 in, citation 5
+    } else if (height > 274.0) {
+      height_cm <- NA
+    }
+  }
+  return(height_cm)
+}
+
+# main function
+convert_to_cm <- function(height) {
+  #initialize variable for return
+  height_cm <- NA
+  
+  # make everything lowercase
+  height <- tolower(height)
+  
+  # format for more consistency
+  height <- gsub("foot | feet", "'", height)
+  height <- gsub("inch | inches", "\\\"", height)
+  
+  # missing values
+  if(grepl(">\\s*9000", height)) {
+    height_cm <- NA
+    return(height_cm)
+  }
+  
+  # directly handle "cm"
+  if(grepl("cm$", height)){
+    height_cm <- as.numeric(gsub("cm", "", height))
+    return(height_cm)
+  }
+  
+  # handle anything that can convert to numeric
+  if(!is.na(as.numeric(height))){
+    height <- as.numeric(height)
+    height_cm <- value_recognized_numeric(height)
+    return(height_cm)
+  }
+  
+  # handle anything that cannot convert to numeric
+  if(is.na(as.numeric(height))){
+    if(grepl(",", height)){
+      height <- gsub(",", ".", height)
+      height_cm <- value_recognized_numeric(height)
+      return(height_cm)
+    }
+
+    # extract words to tokens
+    words_in_column <- unlist(strsplit(height, "\\s+"))
+    num_values <- sapply(words_in_column, word_to_number, USE.NAMES = FALSE)
+    
+    # handle format with 0'00"
+    if(grepl("'|\\\"", height)){
+      height_split <- unlist(strsplit(height, "'|\\\""))
+      height_split <- as.numeric(height_split)
+      # handles cases where inches might not be provided
+      feet <- ifelse(length(height_split) >= 1 & !is.na(height_split[1]), height_split[1], 0)
+      inches <- ifelse(length(height_split) >= 2 & !is.na(height_split[2]), height_split[2], 0)
+      
+      if(feet < 3 & feet > 0){
+        # meters to cm
+        height_cm <- feet * 100 + inches * 100
+      } else if (feet >= 3 & feet < 8) {
+        # feet to cm
+        height_cm <- feet * 30.48 + inches * 2.54
+      } else if (feet > 8) {
+        # already in cm
+        
+        height_cm <- feet + (inches/100)
+      }
+      return(height_cm)
+    }
+  }
+  # return NA is not caught in function
+  return(NA)
+}
+
+q3_data$height.cm <- sapply(q3_data$height, convert_to_cm)
+```
+
+```{r Q6_calculateValuesText, echo = FALSE, warning = FALSE, message = FALSE}
+female_heights <- q3_data %>%
+  filter(sex == "Female")
+
+male_heights <- q3_data %>%
+  filter(sex == "Male")
+
+avg_female_height<- round(mean(female_heights$height.cm, na.rm = TRUE),1)
+avg_male_height <- round(mean(male_heights$height.cm, na.rm = TRUE), 1)
+
+#assume normal distribution for assignment, so no shapiro wilks test needed
+diff_mean <- t.test(female_heights$height.cm, male_heights$height.cm)
+
+if(diff_mean$p.value < 0.04) {
+  # H0 : means are the same
+  #reject H0, likely means are different from each other
+  print_statement <- "statistically significant"
+} else {
+  #fail to reject H0, likely means are NOT different from each other
+  print_statement <- "not statistically significant"
+}
+
+both_values <- function(x){
+  if(x$p.value > 0.04){
+  t_value <- round(x$statistic, 2)
+  p_value <- round(x$p.value, 2)
+  # added equal sign after p because it was bothering me that the format didn't match t, I hope that's ok
+  return (paste("(t =", t_value,", p =", p_value, ")"))
+  } else {
+    return ("")
+  }
+}
+```
+
+The mean height for females is `r avg_female_height`cm while for males it is `r avg_male_height`cm. The difference in means is `r print_statement` `r both_values(diff_mean)`.
+
