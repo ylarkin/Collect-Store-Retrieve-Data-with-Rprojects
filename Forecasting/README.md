@@ -1,89 +1,92 @@
 # Overview:
 
 Descriptive Statistics assignment for DA5020 Course 
-: Collect/Store/Retrieve Data - ASSIGNMENT 02.1: Descriptive Statistics
+: Collect/Store/Retrieve Data - ASSIGNMENT 10.1: Create Forecasting Models.  
+
+Forecasting is an essential activity in various areas of business, healthcare, 
+and government work. We often need to estimate future values. In this assignment, 
+you will practice building and evaluating forecasting models using various R 
+functions and packages, as well as writing your own code.  
 
 ## Learning Objectives
 
-- create R Notebook within a project to organize data processing work
-- calculate descriptive statistics
-- determine normality
-- assess correlation
-- create exploratory visualizations
-- apply basic statistical tests
-- identify outliers
-
+- inspect and shape time series data
+- build forecasting models
+- evaluate forecasting models
+- combine forecasting models in an ensemble
+- use an ensemble model to make a forecast
+  
 ### Instructions
 
-You may not use any additional packages; we ask that you solve this assignment 
-with 'Base R' unless library is specified. Follow the steps below to 
-write a R Notebook file within a R project and use whitewines.csv :
+Place each of the questions into at least one code chunk, although you may 
+segment the code further. For all code chunks, do not echo the code. Explain, 
+in markdown, your approach and discuss the results.  Add appropriate paragraph 
+and section headings. Your result must read like a report you might submit to a 
+client or manager. Suppress warnings and other messages that are distracting. 
+You may only use packages and functions covered thus far in the lessons. Load 
+all data from their URLs rather than local paths. Make sure your code is 
+extensible and will work when the data changes. Follow the steps below to 
+write a R Notebook file within a R project and use WaterUsage-Forecasting.csv :
 
-1. Create a new project in R Studio with new R Notebook and set YAML header.
-2. Load the CSV file from the URL into a data frame called "df.wines". Do not 
-load the text (strings) columns as factors. Check to see if the CSV contains 
-column headers and load appropriately. Do not echo the code into your knitted 
-document.
-3. Add a Level 2 header (##) "Analysis of the Structure of the Data". Underneath 
-write one or more code chunks in R that calculate and then display (in a table) 
-the following statistics for column "residual sugar", "alcohol", "sulphates", 
-and "quality"; the statistics are column, the data "columns" are rows in the 
-table, so "mean" is a column and "alcohol" is a row. Do not echo the code.
-    A. median
-    B. trimmed 10% mean
-    C. standard deviation
-    D. normality ("Yes" if normally distributed, "No" otherwise) based on 
-    Shapiro-Wilk Test
-4. Add a Level 2 header (##) "Correlation Analysis".  Build a correlation matrix 
-showing the correlation between each pair of the same features as used in the 
-prior question. Use the Spearman Rho coefficient of correlation. You must 
-construct the matrix yourself; you may not use a package function. Of course, 
-you may use a function to calculate the correlation coefficient. Do not display/echo the code.
-5. Calculate the correlations between quality and the derived features 
-"swill-coefficient" which is defined by the formula :
+1. Create a new project in R Studio with a new R Notebook in that project. Add 
+appropriate meta data in the notebook's YAML header.
 
-    (100a)/ (s * sqrt(h))
-    where,
-    s = "sugar",
-    h = "sulphates",
-    a = "alcohol"
+2. Load the data from its URL, then sort the data from least recent to most 
+recent so that the most recent data point is the last row in the dataframe.
 
-Do not echo the code. Display markdown text that shows the formula in embedded 
-LaTeX as part of the paragraph where the _____ should be filled in (the first 
-one should be either positive or negative depending on the correlation and the 
-second is the actual coefficient of correlation); the text must be in italics 
-and the formula in LaTeX below the paragraph:
+3. Visualize the time series data in a line graph using ggplot2 or Base R 
+plotting functions. Add an appropriate title, subtitle, axis labels, and units. 
+In markdown, discuss what you find based on the visualization. For example, 
+comment on trend or seasonality. Based on what you find, suggest forecasting 
+methods that will appropriate and then provide details on why other methods 
+might not be.
 
-    We define the "swill-coefficient" by the formula below and found that there 
-    is a ____ correlation between "swill-coefficient" and "quality" 
-    (Pearson-Moment coefficient of ___).
+4. Build a linear trend line (regression) forecasting model.
 
-6. Create a scatter plot to analyze the correlation between 'residual sugar' 
-(x-axis) and 'quality' (y-axis). Label the axes, provide some units, and add an 
-appropriate chart title. Do not echo the code. Add an appropriate explanation in 
-markdown of what you can infer from the graph.
-7. Add a Level 2 header (##) "Analysis of Sugar Content". What is the mean 
-residual sugar for wines below a alcohol content at or above 10 versus below 10? 
-What is the difference in the means? Is the difference in the means 
-statistically significant. Justify the test you used and make sure the test is 
-appropriate for the distribution observed in the data. Write your answer in 
-markdown so that the answer changes of the data changes and the document is 
-re-knit. Do not display/echo the code.
-8. Add a Level 2 header (##) "Identification of Outliers". For each of the 
-columns 'total sulfur', 'chlorides, and 'density' determine the number of 
-outliers using absolute z-scores above 2.0. Display the result in a table using 
-the kable() function. The design of the table is your choice.
+5. Evaluate the MSE of the model built in (4). Discuss what you find and why 
+MSE is useful.
+
+6. Build a four-month weighted moving average forecasting model with weights of 
+(0.6, 0.2, 0.1, 0.1) where the left-most weight is for the most recent month.
+
+7. Evaluate the MSE of the model built in (6). Discuss what you find and why 
+MSE is useful.
+
+8. Compare the two models and discuss in markdown; provide a table of the MSE 
+values.
+
+9. Build an ensemble model as a function that returns the forecast for the next 
+point in time given a time series and using the models built in (4) and (6). 
+The ensemble should weight the forecast with a weight of 0.7 for the model with 
+the lowest MSE. Make this dynamic so it automatically chooses the correct model 
+as data changed.
+
+10. Calculate the MSE for the ensemble model built in (9) and compare the MSE 
+with those of the base models built in (4) and (6). Discuss what you find in 
+markdown.
+
+11. Make a point forecast for the next time period using all three models and 
+clearly show them in markdown, perhaps using a table. Remember that someone will 
+reads this and needs to understand your analysis.
+
+Submission : Only submit .Rmd
+Ensure that the notebook knits to HTML in a clean environment; so, remove all 
+objects and knit before submitting. Suppress all warnings and ensure your report 
+is clean, clear, and readable.
 
 ### Dependencies
 - R 3.0.0 +
 - Windows 8 (or newer) OR macOS
 - RStudio / Posit IDE 
-- whitewines.csv : information about white wines
+- WaterUsage-Forecasting.csv : time series data for water usage February 22 to 
+November 24
 
 ### Installing:
-- base R : download according to CRAN Mirror https://cran.r-project.org/mirrors.html
+- base R : download according to CRAN Mirror 
+https://cran.r-project.org/mirrors.html
 - RStudio / Posit IDE : create R project to write R script file
-- whitewines.csv URL : https://s3.us-east-2.amazonaws.com/artificium.us/datasets/whitewines.csv
+- WaterUsage-Forecasting.csv URL : 
+https://s3.us-east-2.amazonaws.com/artificium.us/datasets/WaterUsage-02-22-to-11-24.csv
 
 ### Executing program:
 - Run Notebook in RStudio / Posit IDE
