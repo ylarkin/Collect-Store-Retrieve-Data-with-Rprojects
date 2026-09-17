@@ -1,12 +1,17 @@
 ---
-title: "Build Forecasting Models"
+title: "Time-Series Forecasting Ensemble"
+subtitle: "DA5020 : Assignment 10.1 Build Forecasting Models"
 author: "Larkin, Yvonne"
-date: "sp 2025, March 25th"
+date: "Spring 2025, March 25th"
 output:
   html_document:
     df_print: paged
-subtitle: DA5020 / Assignment 10.1
 ---
+
+## Forecast Water Usage
+
+Using the time series data in [WaterUsage-02-22-to-11-24.csv](https://s3.us-east-2.amazonaws.com/artificium.us/datasets/WaterUsage-02-22-to-11-24.csv) create two prediction models to evaluate independently and then
+combine the two models into an ensemble forecast.
 
 ```{r loadPackages, echo=FALSE, warning=FALSE, message=FALSE}
 suppressWarnings(library(forecast))
@@ -46,12 +51,12 @@ plot1 <- ggplot(water_usage, aes(date, daily_water_ts)) + geom_line() + labs(
   caption = "Average daily water consumption per time series period in monthly incrementations"
 ) + scale_x_date(breaks = seq.Date(from = start.date, to = end.date, by = "6 months"), minor_breaks = seq.Date(from = start.date, to = end.date, by = "1 month"), date_labels = "%B-%Y")
 ```
-## Question 3 Explanation <small>(also applies to Question 6 and 10)</small>
+
+## Evaluate Time-Series Data <small>(also applies to MSE and WMA evaluation)</small>
 
 In the line graph below you can see average daily water usage plotted each month over time. 
 
-Upon visual inspection you can see there is a consistent downward trend across months/years. There initially appear to be seasonality (regular, repeating patterns of cycles in the data) in the graph due to peaks and troughs. But, what type of cycle is not entirely clear and suggests an unknown factor impacting water usage. This is because it consistently has a peak to trough pattern, without a type of maintenance of values. But further inspection and the fact that average daily overall per month is used instead of seeing each individual day'
-s water usage and so we are simplifying the system. You are still able to see that it flop between peaks and troughs every 1 to 2 months which would lend itself to be more akin to noise. However, this is dealing in "thousands of liters" of water so those are large fluctuations (not small like noise) which again indicates a potential outside factor influencing the switch between peaks and troughs. Still, the seasonality is definitely not related to a calendar seasons or holidays (as is commonly associated with seasonality). If you visually compare the same months, or even quarters, in the graph above you can see examples of conflicts that correspond to time specific seasonality. Such as water usage in the month of March, it was a trough in 2022 and 2023, but it was the highest peak in 2024 (in addition to other comparisons).
+Upon visual inspection you can see there is a consistent downward trend across months/years. There initially appear to be seasonality (regular, repeating patterns of cycles in the data) in the graph due to peaks and troughs. But, what type of cycle is not entirely clear and suggests an unknown factor impacting water usage. This is because it consistently has a peak to trough pattern, without a type of maintenance of values. But further inspection and the fact that average daily overall per month is used instead of seeing each individual day's water usage and so we are simplifying the system. You are still able to see that it flop between peaks and troughs every 1 to 2 months which would lend itself to be more akin to noise. However, this is dealing in "thousands of liters" of water so those are large fluctuations (not small like noise) which again indicates a potential outside factor influencing the switch between peaks and troughs. Still, the seasonality is definitely not related to a calendar seasons or holidays (as is commonly associated with seasonality). If you visually compare the same months, or even quarters, in the graph above you can see examples of conflicts that correspond to time specific seasonality. Such as water usage in the month of March, it was a trough in 2022 and 2023, but it was the highest peak in 2024 (in addition to other comparisons).
 
 A simple moving average (SMA) and simple exponential smoothing (SES) are not useful models because niether can deal with trend or seasonality and this data exhibits a clear downward trend.
 
@@ -76,9 +81,10 @@ slope_wu <- wu_lm_mod$coefficients[[2]]
 lm_mod_sum <- summary(wu_lm_mod)
 ```
 
-## Question 3 Line Graph with Question 4 Regression Line Overlay
+## Visualize Time-Series Data in Line Graph with Linear Trend Line (Regression) Overlay
 
 I have overlaid the linear regression trend line, calculated based on the data where each month is a unique period point showing the daily average water consumption in the time series. The regression line is based off the linear model summarized here:
+
 ```{r Q4_plot_regression_line, echo=FALSE, warning=FALSE, message=FALSE}
 #vector operation, forecast values to plot line on graph
 water_usage$lm_predicted <- round(intercept_wu + (slope_wu * water_usage$period),0)
@@ -97,7 +103,8 @@ water_usage$lm_error <- wu_lm_mod$residuals
 #mean of the squared errors which are the residuals calculated by lm()
 mse_lm_wu <- mean((wu_lm_mod$residuals)^2, na.rm = TRUE)
 ```
-## Question 5
+
+## Evaluate the Mean Squared Error (MSE)
 
 The linear regression model of the graphed data has a mean squared error (MSE) of `r round(mse_lm_wu,1)`. 
 
@@ -105,7 +112,7 @@ The MSE is the average of all the squared errors as the name indicates and a mod
 
 The number on it's own can't tell us much aside from if there is an emphasize on model prediction error. MSE and other model evaluation values are also a helpful comparison value between models. Whichever model has a lower MSE is considered a more accurate model for the data set. So next we will create a weighted moving average (WMA) model and calculate it's MSE as a means of comparison to see which model would more accurately predict a value close to the observed.
 
-## Question 6
+## Build a four-month Weighted Moving Average (WMA) Forecasting Model
 
 ```{r Q6_WMA_model, echo=FALSE, message=FALSE, warning=FALSE}
 #4 month weighted moving average forecasting model
@@ -116,6 +123,7 @@ weights <- c(0.6, 0.2, 0.1, 0.1)
 wu_wma_mod <- water_usage$wma <- WMA(daily_water_ts, n = length(weights), wts = weights)
 wma_mod_sum <- summary(wu_wma_mod)
 ```
+
 The WMA created is a 4 month weighted moving average, where a predicted data point is the result of the prior 4 month's values at different impact levels. The weights designated are `r weights[1:4]` and the summary of the WMA is :
 `r wma_mod_sum`
 
@@ -128,7 +136,8 @@ mse_wma_wu <- mean((water_usage$wma_error)^2, na.rm = TRUE)
 The 4 month WMA has an MSE of : `r mse_wma_wu`
 The same explanation of MSE applies, but our WMA is a smoothing technique so we would expect it to be closer than the linear regression model which is trying to make a best fit line between all of the peaks and troughs.
 
-## Question 8
+## Compare MSE and WMA Models 
+
 ```{r Q8_table, echo=FALSE, warning=FALSE, message=FALSE}
 mse_table_data <- data.frame(
   Model = c("Linear Regression", "Weighted Moving Average"),
@@ -136,8 +145,12 @@ mse_table_data <- data.frame(
 )
 mse_table <- kable(mse_table_data, align = c('l', 'c'), digit = 1, caption = "Mean Standard Error Comparison")
 ```
+
 `r mse_table`
+
 Based on the MSE values alone we would say that the weighted moving average model is almost two times more accurate than the linear regression model.
+
+## Build an Ensemble Model from the MSE and WMA models
 
 ```{r Q9_ensemble_Model_function, echo=FALSE, message=FALSE, warning=FALSE}
 #ensemble model function given a time series using models from 4 and 6
@@ -255,13 +268,15 @@ last_year <- format(water_usage[n, "date"], format = "%Y")
 next_month <- format(water_usage[n, "date"] %m+% months(1), format = "%B")
 next_year <- format(water_usage[n, "date"] %m+% months(1), format = "%Y")
 ```
-## Question 10 and 11
+
+## Table of 3 Models' MSE
 
 In the table below, there are 3 different point forecasts with their corresponding model and MSE listed. The combined ensemble forecasting model is considered the best fit of the 3 used because it has the lowest MSE value (as explained previously). The MSE is based on all errors up to `r last_month` `r last_year`. There is no observed data point to compare to the "Forecasted Value" corresponding to future time point `r next_month` `r next_year`. 
 
 `r forecast_table`
 
 ## Visualization of 3 Models' Predicted Values
+
 In addition to the table I decided to graph all values on a scatter plot to visually see how the values overlay against the observed and include the 3 point predictions from the table above:
 
 Actual observed values are in black as pch value 13 which is a circle with a x through it.
