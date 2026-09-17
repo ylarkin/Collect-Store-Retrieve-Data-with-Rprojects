@@ -1,7 +1,8 @@
 ---
-title: "DA5020 Descriptive Analytics"
+title: "Basic Statistical Testing for Wine Data"
+subtitle: "DA5020 Assignment 02.1 Descriptive Statistics"
 author: "Larkin, Yvonne"
-date: "Sp2025"
+date: "Spring 2025, January 21st"
 output:
   html_document:
     df_print: paged
@@ -12,14 +13,25 @@ df.wines <- read.csv("whitewines.csv", stringsAsFactors = FALSE)
 ```
 
 ## Analysis of the Structure of the Data
-Calculate and display statistics for data from [WhiteWine.csv]("https://s3.us-east-2.amazonaws.com/artificium.us/datasets/whitewines.csv")
+
+Evaluate the mean, median, standard deviation, and normality for the wine characteristics: Residual Sugar, Alcohol, Sulphates, and Quality. Use data file
+[WhiteWine.csv]("https://s3.us-east-2.amazonaws.com/artificium.us/datasets/whitewines.csv") to calculate dataset statistics.
 
 ```{r Q3stats_table, echo=FALSE, warning=FALSE, message=FALSE}
-row_vectors <- list(df.wines$residual.sugar, df.wines$alcohol, df.wines$sulphates, df.wines$quality)
+row_vectors <- list(df.wines$residual.sugar, 
+                    df.wines$alcohol, 
+                    df.wines$sulphates, 
+                    df.wines$quality)
+# calculate median for each vector
 median_values <- sapply(row_vectors, median)
+# calculate mean for each vector
 trimmed_values <- sapply(row_vectors, function(x) mean(x, trim = 0.1))
+# calculate standard deviation for each vector
 sd_values <- sapply(row_vectors, sd)
-normality_test <- vector(mode = "character", length = length(row_vectors))
+# initiate empty vector for normality designation
+normality_test <- vector(mode = "character", 
+                         length = length(row_vectors))
+# designate if test results are normal by shapiro wilks
 for(i in 1:length(row_vectors)){
   norm_result <- shapiro.test(row_vectors[[i]])
     if (norm_result$p.value < 0.05){
@@ -28,18 +40,32 @@ for(i in 1:length(row_vectors)){
       normality_test[i] <- "Yes"
   }
 }
-table_results <- data.frame(row.names = c("Residual Sugar", "Alcohol", "Sulphates", "Quality"), Median = round(median_values, 3), Trimmed.Mean = round(trimmed_values, 3), Standard.Deviation = round(sd_values,3), Normal.Distribution = normality_test)
+# organize results into table
+table_results <- data.frame(row.names = c("Residual Sugar", 
+                                          "Alcohol", "Sulphates", "Quality"),
+                            Median = round(median_values, 3), 
+                            Trimmed.Mean = round(trimmed_values, 3),
+                            Standard.Deviation = round(sd_values,3),
+                            Normal.Distribution = normality_test)
+# display calculated values
 table_results
-#APA citation: OpenAI. (2025a, January 21). Accessing vector in list. ChatGPT. https://chatgpt.com/share/67906ad7-7b58-8006-8754-d7baaf72c325 
 ```
+
 ## Correlation Analysis
+
 ### Spearman Rho Correlation Coefficient:
+
 ```{r Q4Spearman_cor, echo=FALSE}
-all_cor_factors <- cor(df.wines[,c("residual.sugar","alcohol", "sulphates", "quality")], method = "spearman")
+# use spearman correlation method between the 4 variables
+all_cor_factors <- cor(df.wines[,c("residual.sugar",
+                                   "alcohol", "sulphates", "quality")], 
+                       method = "spearman")
 cor_matrix_rounded <- round(all_cor_factors, 3)
 cor_matrix_rounded
 ```
+
 ### Swill-Coefficient:
+
 ```{r Q5swill_calc, echo=FALSE}
 a <- df.wines$alcohol
 h <- df.wines$sulphates
@@ -48,21 +74,32 @@ swill_cor <- (100 * a) / (s * sqrt(h))
 pearson_coeff <- cor.test(swill_cor, df.wines$quality, method = "pearson")
 # APA citation: OpenAI. (2025b, January 21). Fraction latex syntax. ChatGPT. https://chatgpt.com/share/67906ba6-4a80-8006-9ded-6b2c4705390e 
 ```
-*We define the "swill-coefficient" by the formula below and found that there is a zero correlation between "swill-coefficient" and "quality" (Pearson-Moment coefficient of `r round(pearson_coeff$estimate, 3)` )* $$\frac{100a}{s\times\sqrt{h}}$$
+
+*We define the "swill-coefficient" by the formula below and found that there is a zero correlation between "swill-coefficient" and "quality" (Pearson-Moment coefficient of `r round(pearson_coeff$estimate, 3)` )*
+
+$$\frac{100a}{s\times\sqrt{h}}$$
 
 ## Scatter Plot
+
 ```{r Q6Scatterplot, echo=FALSE}
-plot(df.wines$residual.sugar, df.wines$quality, xlab = "residual sugar", ylab = "quality", main = "Correlation between Residual Sugar and Quality in White Wines")
+plot(df.wines$residual.sugar, 
+     df.wines$quality, 
+     xlab = "residual sugar", 
+     ylab = "quality", 
+     main = "Correlation between Residual Sugar and Quality in White Wines")
 ```
+  
 The scatter plot follows distinct horizontal lines because the quality metric is discrete in it's values whereas the residual sugar values are on a continuous scale. There are a few obvious outliers on the graph (most noteably past x = 25 along y = 6) but distinct cutoffs would need to be calculated to account for all of the outliers. It does seem to follow a normal distribution of a bell curve around the mean of 6 for quality.
 
-## Analysis of Sugar Content
+## Analysis of Residual Sugar Content
 ```{r Q7contraint_operations, echo =FALSE}
 values_above10 <- df.wines[df.wines$alcohol > 10, "residual.sugar" ]
 values_below10 <- df.wines[df.wines$alcohol < 10, "residual.sugar" ]
+
 mean_above <- mean(values_above10, na.rm = TRUE)
 mean_below <- mean(values_below10, na.rm = TRUE)
 diff_mean <- abs(mean_above - mean_below)
+
 #tested shapiro wilks normality and data is not normally distributed so use Wilcoxon Rank Sum Test
 stat_sig_diff <- wilcox.test(values_above10, values_below10)
 print_output <- if(stat_sig_diff$p.value < 0.05){
@@ -70,21 +107,47 @@ print_output <- if(stat_sig_diff$p.value < 0.05){
   } else { "Because the p-value is greater the alpha value of 0.05, we fail to reject the null hypothesis that there is no significant difference between the two means. Therefore we conclude there is no significant difference."
     }
 ```
-The mean residual sugar for wines below an alcohol content of 10 = `r round(mean_below, 3)`
-The mean residual sugar for wines above an alcohol content of 10 = `r round(mean_above, 3)`
-The difference in means for wines with alcohol contents above or below 10 = `r round(diff_mean, 3)`
-Because the data is not normally distributed when tested with the Shapiro Wilks Test, Wilcoxon Rank Sum Test was used to determine if there is a statitical difference between the the alcohol means calculated above. The p-value = `r stat_sig_diff$p.value`. `r print_output`
+
+The mean residual sugar for wines below an alcohol content of 10 = `r round(mean_below, 3)`  
+The mean residual sugar for wines above an alcohol content of 10 = `r round(mean_above, 3)`  
+The difference in means for wines with alcohol contents above or below 10 = `r round(diff_mean, 3)`  
+  
+Because the data is not normally distributed when tested with the Shapiro Wilks Test, Wilcoxon Rank Sum Test was used to determine if there is a statistically significant difference between the the alcohol means calculated above.  
+  
+The test's **p-value = `r stat_sig_diff$p.value`**  
+  
+`r print_output`
 
 ## Identification of Outliers
-```{r Q8Outliers, warning=FALSE, message=FALSE}
-sulfur_z <- (df.wines$total.sulfur.dioxide - mean(df.wines$total.sulfur.dioxide, na.rm = TRUE))/sd(df.wines$total.sulfur.dioxide, na.rm = TRUE)
-chlorides_z <- (df.wines$chlorides - mean(df.wines$chlorides, na.rm = TRUE))/sd(df.wines$chlorides, na.rm = TRUE)
-density_z <- (df.wines$density - mean(df.wines$density, na.rm = TRUE))/sd(df.wines$density, na.rm = TRUE)
+
+```{r Q8Outliers, echo =FALSE, warning=FALSE, message=FALSE}
+# calculate z-score for sulfur, chlorides, and desity
+sulfur_z <- (df.wines$total.sulfur.dioxide - 
+               mean(df.wines$total.sulfur.dioxide,
+                    na.rm = TRUE)) / sd(df.wines$total.sulfur.dioxide,
+                                        na.rm = TRUE)
+chlorides_z <- (df.wines$chlorides - 
+                  mean(df.wines$chlorides, 
+                       na.rm = TRUE)) / sd(df.wines$chlorides, 
+                                           na.rm = TRUE)
+density_z <- (df.wines$density - 
+                mean(df.wines$density, 
+                     na.rm = TRUE)) / sd(df.wines$density, 
+                                         na.rm = TRUE)
+# determine outliers with z-score > 2.0
 outliers_sulphur <- df.wines$total.sulfur.dioxide[abs(sulfur_z) > 2.0]
 outliers_chloride <- df.wines$chlorides[abs(chlorides_z) > 2.0]
 outliers_density <- df.wines$density[abs(density_z) > 2.0]
-outliers_table <- data.frame(Category.of.Interest = c("Total Sulfur Dioxide", "Chlorides", "Density"), Outliers = c(length(outliers_sulphur), length(outliers_chloride), length(outliers_density)))
+
+# display outliers as table
+outliers_table <- data.frame(Category.of.Interest = c("Total Sulfur Dioxide", 
+                                                      "Chlorides", 
+                                                      "Density"), 
+                             Outliers = c(length(outliers_sulphur), 
+                                          length(outliers_chloride), 
+                                          length(outliers_density)))
 library(knitr)
-kable(outliers_table, align = "l", caption = "Number of Outliers for each category with z-Score > 2.0")
+kable(outliers_table, align = "l", 
+      caption = "Number of Outliers for each category with z-Score > 2.0")
 ```
 

@@ -89,6 +89,7 @@ Submission : only submit .Rmd file, knit when grading.
 - Windows 8 (or newer) OR macOS
 - RStudio / Posit IDE 
 - whitewines.csv : information about white wines
+- knitr library
 
 ### Installing:
 - base R : download according to CRAN Mirror 
@@ -96,6 +97,7 @@ https://cran.r-project.org/mirrors.html
 - RStudio / Posit IDE : create R project to write R script file
 - whitewines.csv URL : 
 https://s3.us-east-2.amazonaws.com/artificium.us/datasets/whitewines.csv
+- knitr library for function ::kable()
 
 ### Executing program:
 - Run Notebook in RStudio / Posit IDE
