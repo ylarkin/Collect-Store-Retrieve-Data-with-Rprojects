@@ -81,7 +81,7 @@ slope_wu <- wu_lm_mod$coefficients[[2]]
 lm_mod_sum <- summary(wu_lm_mod)
 ```
 
-## Visualize Time-Series Data in Line Graph with Linear Trend Line (Regression) Overlay
+## Visualize Time-Series Data in Line Graph with Linear Regression Overlay
 
 I have overlaid the linear regression trend line, calculated based on the data where each month is a unique period point showing the daily average water consumption in the time series. The regression line is based off the linear model summarized here:
 
@@ -104,7 +104,7 @@ water_usage$lm_error <- wu_lm_mod$residuals
 mse_lm_wu <- mean((wu_lm_mod$residuals)^2, na.rm = TRUE)
 ```
 
-## Evaluate the Mean Squared Error (MSE)
+## Evaluate Mean Squared Error (MSE) for Linear Regression Model <small>and WMA model</small>
 
 The linear regression model of the graphed data has a mean squared error (MSE) of `r round(mse_lm_wu,1)`. 
 
@@ -112,7 +112,7 @@ The MSE is the average of all the squared errors as the name indicates and a mod
 
 The number on it's own can't tell us much aside from if there is an emphasize on model prediction error. MSE and other model evaluation values are also a helpful comparison value between models. Whichever model has a lower MSE is considered a more accurate model for the data set. So next we will create a weighted moving average (WMA) model and calculate it's MSE as a means of comparison to see which model would more accurately predict a value close to the observed.
 
-## Build a four-month Weighted Moving Average (WMA) Forecasting Model
+## Build a 4-month Weighted Moving Average (WMA) Forecasting Model
 
 ```{r Q6_WMA_model, echo=FALSE, message=FALSE, warning=FALSE}
 #4 month weighted moving average forecasting model
@@ -136,7 +136,7 @@ mse_wma_wu <- mean((water_usage$wma_error)^2, na.rm = TRUE)
 The 4 month WMA has an MSE of : `r mse_wma_wu`
 The same explanation of MSE applies, but our WMA is a smoothing technique so we would expect it to be closer than the linear regression model which is trying to make a best fit line between all of the peaks and troughs.
 
-## Compare MSE and WMA Models 
+## Compare Linear and WMA Models 
 
 ```{r Q8_table, echo=FALSE, warning=FALSE, message=FALSE}
 mse_table_data <- data.frame(
@@ -150,7 +150,7 @@ mse_table <- kable(mse_table_data, align = c('l', 'c'), digit = 1, caption = "Me
 
 Based on the MSE values alone we would say that the weighted moving average model is almost two times more accurate than the linear regression model.
 
-## Build an Ensemble Model from the MSE and WMA models
+## Build an Ensemble Model from the Linear and WMA models
 
 ```{r Q9_ensemble_Model_function, echo=FALSE, message=FALSE, warning=FALSE}
 #ensemble model function given a time series using models from 4 and 6
@@ -269,13 +269,13 @@ next_month <- format(water_usage[n, "date"] %m+% months(1), format = "%B")
 next_year <- format(water_usage[n, "date"] %m+% months(1), format = "%Y")
 ```
 
-## Table of 3 Models' MSE
+### Table of 3 Models' Forecasted Value and overall MSE
 
 In the table below, there are 3 different point forecasts with their corresponding model and MSE listed. The combined ensemble forecasting model is considered the best fit of the 3 used because it has the lowest MSE value (as explained previously). The MSE is based on all errors up to `r last_month` `r last_year`. There is no observed data point to compare to the "Forecasted Value" corresponding to future time point `r next_month` `r next_year`. 
 
 `r forecast_table`
 
-## Visualization of 3 Models' Predicted Values
+### Visualization of 3 Models' Predicted Values
 
 In addition to the table I decided to graph all values on a scatter plot to visually see how the values overlay against the observed and include the 3 point predictions from the table above:
 
@@ -296,24 +296,37 @@ start.date <- water_usage[1, "date"] %m-% months(1)
 end.date <- water_usage[n, "date"] %m+% months(2)
 
 # make base scatterplot
-scat1 <- ggplot(water_usage, aes(date, daily_water_ts)) + geom_point(color = "black", shape = 13, size = 2) + labs(
-  title = "Line Graph of Water Useage over Time",
-  x = "Period by Month",
-  y = "Average Daily Water use in Thousands of Liters",
-  caption = "Average daily water consumption per time series period in monthly incrementations"
-) + scale_x_date(breaks = seq.Date(from = start.date, to = end.date, by = "6 months"), minor_breaks = seq.Date(from = start.date, to = end.date, by = "1 month"), date_labels = "%B-%Y")
+scat1 <- ggplot(water_usage, aes(date, daily_water_ts)) + 
+  geom_point(color = "black", shape = 13, size = 2) + 
+  labs(title = "Line Graph of Water Useage over Time",
+       x = "Period by Month",
+       y = "Average Daily Water use in Thousands of Liters",
+       caption = "Average daily water consumption per time series period in 
+       monthly incrementations") + 
+  scale_x_date(breaks = seq.Date(from = start.date, 
+                                 to = end.date, 
+                                 by = "6 months"), 
+               minor_breaks = seq.Date(from = start.date, 
+                                       to = end.date, 
+                                       by = "1 month"), 
+               date_labels = "%B-%Y")
 
 # data to overlay
 lm_data <- water_usage$lm_predicted
 wma_data <- water_usage$wma
 ensemble_data <- water_usage$ensemble_predicted
 
-
+# add prediction values to scatterplot
 scat1 + 
   geom_point(aes(x = date, y = lm_data), color = "orange") +
   geom_point(aes(x = shifted_period, y = wma_data), color = "purple") +
   geom_point(aes(x = shifted_period, y = ensemble_data), color = "cyan") +
-  geom_point( data = data.frame( date = water_usage[n, "date"] %m+% months(1), lm_point_forecast = lm_forecast), aes(x = date, y = lm_point_forecast), color = "orange") +
-  scale_color_manual(values = c("Actual Observed Data" = "black", "Linear Regression" = "orange", "WMA" = "purple", "Ensemble" = "cyan"))
+  geom_point(data = data.frame(date = water_usage[n, "date"] %m+% months(1), 
+                                 lm_point_forecast = lm_forecast), 
+              aes(x = date, y = lm_point_forecast), color = "orange") +
+  scale_color_manual(values = c("Actual Observed Data" = "black", 
+                                "Linear Regression" = "orange", 
+                                "WMA" = "purple", 
+                                "Ensemble" = "cyan"))
 ```
 
