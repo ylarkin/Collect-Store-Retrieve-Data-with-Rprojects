@@ -3,9 +3,7 @@ title: "Basic Statistical Testing for Wine Data"
 subtitle: "DA5020 Assignment 02.1 Descriptive Statistics"
 author: "Larkin, Yvonne"
 date: "Spring 2025, January 21st"
-output:
-  html_document:
-    df_print: paged
+output: html_document
 ---
 
 ```{r Q2load_dataframe, echo=FALSE}
@@ -71,11 +69,13 @@ a <- df.wines$alcohol
 h <- df.wines$sulphates
 s <- df.wines$residual.sugar
 swill_cor <- (100 * a) / (s * sqrt(h))
-pearson_coeff <- cor.test(swill_cor, df.wines$quality, method = "pearson")
-# APA citation: OpenAI. (2025b, January 21). Fraction latex syntax. ChatGPT. https://chatgpt.com/share/67906ba6-4a80-8006-9ded-6b2c4705390e 
+pearson_coeff <- cor.test(swill_cor, 
+                          df.wines$quality, 
+                          method = "pearson")
+pear_coeff <- pearson_coeff$estimate
 ```
 
-*We define the "swill-coefficient" by the formula below and found that there is a zero correlation between "swill-coefficient" and "quality" (Pearson-Moment coefficient of `r round(pearson_coeff$estimate, 3)` )*
+The "swill-coefficient" is defined by the formula below. There is zero correlation between "swill-coefficient" and "quality" (Pearson-Moment coefficient of `r round(pear_coeff, 3)` )*
 
 $$\frac{100a}{s\times\sqrt{h}}$$
 
